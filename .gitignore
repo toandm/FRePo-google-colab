@@ -137,3 +137,6 @@ __azurite_db*__.json
 .windsurf
 .vscode
 toan_test*
+train_log
+data
+~

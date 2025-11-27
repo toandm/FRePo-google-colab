@@ -132,7 +132,7 @@ def nfr(x_target, x_proto, y_proto, nn_state, feat_fn, reg=1e-6):
     k_pp_reg = (
         k_pp + jnp.abs(reg) * jnp.trace(k_pp) * jnp.eye(k_pp.shape[0]) / k_pp.shape[0]
     )
-    pred = jnp.dot(k_tp, sp.linalg.solve(k_pp_reg, y_proto, sym_pos=True))
+    pred = jnp.dot(k_tp, sp.linalg.solve(k_pp_reg, y_proto, assume_a='pos'))
     return pred
 
 
@@ -245,7 +245,7 @@ def proto_train_step(state, nn_state, batch, use_flip=False, feat_fn=None):
 def proto_eval_step(x_proto, y_proto, k_pp_reg, nn_state, batch, feat_fn=None):
     x_target = feat_fn(batch["image"], nn_state)
     k_tp = x_target.dot(x_proto.T)
-    pred = jnp.dot(k_tp, sp.linalg.solve(k_pp_reg, y_proto, sym_pos=True))
+    pred = jnp.dot(k_tp, sp.linalg.solve(k_pp_reg, y_proto, assume_a='pos'))
     return compute_metrics(pred, batch["label"], mean_squared_loss)
 
 
