@@ -365,10 +365,10 @@ def eval_on_proto_nn(ds_test, nn_state, jit_nn_eval_step, writer=None, step=0, n
     nn_eval_metrics = get_metrics(
         nn_eval_metrics, use_pmap=False
     )  # (num_eval, num_device)
-    nn_summary_mean = jax.tree_map(
+    nn_summary_mean = jax.tree.map(
         lambda x: x.mean(), nn_eval_metrics
     )  # mean of num_device models
-    nn_summary_std = jax.tree_map(
+    nn_summary_std = jax.tree.map(
         lambda x: x.mean(0).std(), nn_eval_metrics
     )  # std of num_device models
 
@@ -420,10 +420,10 @@ def eval_on_proto_krr(
     krr_eval_metrics = get_metrics(
         krr_eval_metrics, use_pmap=False
     )  # (num_eval, num_device)
-    krr_summary_mean = jax.tree_map(
+    krr_summary_mean = jax.tree.map(
         lambda x: x.mean(), krr_eval_metrics
     )  # mean of num_device models
-    krr_summary_std = jax.tree_map(
+    krr_summary_std = jax.tree.map(
         lambda x: x.mean(0).std(), krr_eval_metrics
     )  # std of num_device models
 
@@ -921,10 +921,10 @@ def proto_evaluate(
                 nn_train_metrics = get_metrics(
                     train_metrics, use_pmap=False
                 )  # (num_eval, num_device)
-                nn_summary_mean = jax.tree_map(
+                nn_summary_mean = jax.tree.map(
                     lambda x: x.mean(), nn_train_metrics
                 )  # mean of num_device models
-                nn_summary_std = jax.tree_map(
+                nn_summary_std = jax.tree.map(
                     lambda x: x.mean(0).std(), nn_train_metrics
                 )  # std of num_device models
 
@@ -1012,7 +1012,7 @@ def proto_evaluate(
                     nn_train_metrics = get_metrics(
                         train_metrics, use_pmap=False
                     )  # (num_eval, num_device)
-                    nn_summary_mean = jax.tree_map(
+                    nn_summary_mean = jax.tree.map(
                         lambda x: x.mean(), nn_train_metrics
                     )  # mean of num_device models
 
