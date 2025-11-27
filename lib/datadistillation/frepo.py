@@ -47,6 +47,32 @@ Dtype = Any
 Array = Any
 
 
+def _format_elapsed(sec: float) -> str:
+    """Format elapsed seconds into a human-friendly string.
+
+    Examples:
+      150 -> '2m30s'
+      3.142 -> '3.142s'
+      0.123 -> '123ms'
+      3661 -> '1h1m1s'
+    """
+    if sec >= 3600:
+        h = int(sec // 3600)
+        rem = sec % 3600
+        m = int(rem // 60)
+        s = int(rem % 60)
+        return f"{h}h{m}m{s}s"
+    if sec >= 60:
+        m = int(sec // 60)
+        s = int(sec % 60)
+        return f"{m}m{s}s"
+    if sec >= 1:
+        return f"{sec:.3f}s"
+    # less than 1 second -> show milliseconds
+    ms = int(sec * 1000)
+    return f"{ms}ms"
+
+
 class ProtoState(train_state.TrainState):
     epoch: int
     best_val_acc: float
@@ -530,6 +556,9 @@ def proto_train_and_evaluate(
     # --------------------------------------
     ds_train, ds_test = dataset
 
+    # start timer for this proto training session
+    proto_start_t = time.time()
+
     if writer is None:
         writer = metric_writers.create_default_writer(logdir=workdir)
 
@@ -776,6 +805,13 @@ def proto_train_and_evaluate(
                 save_checkpoint(state, os.path.join(workdir, "proto"), step + 1)
             except Exception as e:
                 print(e)
+            finally:
+                elapsed_proto = time.time() - proto_start_t
+                logging.info(
+                    "Elapsed since proto_train_and_evaluate start: %s (step=%s)",
+                    _format_elapsed(elapsed_proto),
+                    step + 1,
+                )
 
             if accuracy > best_val_acc:
                 best_val_acc = accuracy
@@ -804,6 +840,13 @@ def proto_train_and_evaluate(
                     )
                 except Exception as e:
                     print(e)
+                finally:
+                    elapsed_proto = time.time() - proto_start_t
+                    logging.info(
+                        "Elapsed since proto_train_and_evaluate start: %s (best_ckpt, val=%s)",
+                        _format_elapsed(elapsed_proto),
+                        np.round(best_val_acc, 2),
+                    )
 
         if (step + 1) in log_steps or (step + 1) % save_ckpt == 0:
             try:
@@ -812,6 +855,13 @@ def proto_train_and_evaluate(
                 )
             except Exception as e:
                 print(e)
+            finally:
+                elapsed_proto = time.time() - proto_start_t
+                logging.info(
+                    "Elapsed since proto_train_and_evaluate start: %s (saved_ckpt, step=%s)",
+                    _format_elapsed(elapsed_proto),
+                    step + 1,
+                )
 
         if image_saver:
             if (
