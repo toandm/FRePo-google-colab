@@ -1,9 +1,9 @@
 clu==0.0.12
 fire==0.7.1
 flax==0.12.1
-jax==0.8.1
 matplotlib==3.10.7
 pandas==2.3.3
 tensorflow-datasets==4.9.9
 tensorflow==2.20.0
 tqdm==4.67.1
+"jax[cuda12]==0.8.1" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
