@@ -78,7 +78,7 @@ export PATH=/scratch/ssd001/pkgs/cuda-11.3/bin:$PATH
 - You can train and evaluate the distilled data using the following command.
 
 ```bash
-path="--dataset_name=cifar100 --train_log=train_log --train_img=train_img --zca_path=data/zca --data_path=~/tensorflow_datasets --save_image=True"
+path="--dataset_name=cifar100 --train_log=train_log --train_img=train_img --zca_path=data/zca --data_path=data/tensorflow_datasets --save_image=True"
 exp="--learn_label=True --random_seed=0"
 arch="--arch=conv --width=128 --depth=3 --normalization=batch"
 hyper="--max_online_updates=100 --num_nn_state=10 --num_train_steps=500000"
@@ -109,7 +109,7 @@ python -m script.eval $ckpt $path $arch
 - You can download checkpoints to a new directory `ckpts_drive` and then run the following command.
 
 ```bash
-path="--dataset_name=cifar100 --zca_path=data/zca --data_path=~/tensorflow_datasets"
+path="--dataset_name=cifar100 --zca_path=data/zca --data_path=data/tensorflow_datasets"
 arch="--arch=conv --width=128 --depth=3 --normalization=batch"
 ckpt="--ckpt_dir=ckpts_drive/cifar100/ipc1_llTrue --res_dir=ckpts_drive/cifar100 --num_eval=5"
 python -m script.eval $ckpt $path $arch
@@ -140,7 +140,7 @@ images, labels = state['params']['x_proto'], state['params']['y_proto']
 #### Continual Learning
 
 ```bash
-path="--dataset_name=cifar100 --train_log=train_log/cl --train_img=train_img/cl --zca_path=data/zca --data_path=~/tensorflow_datasets --save_image=False"
+path="--dataset_name=cifar100 --train_log=train_log/cl --train_img=train_img/cl --zca_path=data/zca --data_path=data/tensorflow_datasets --save_image=False"
 exp="--learn_label=True --num_prototypes_per_class=20"
 arch="--arch=conv --width=128 --depth=3 --normalization=batch"
 hyper="--max_online_updates=100 --num_nn_state=10 --num_train_steps=500000"
@@ -167,7 +167,7 @@ done
 #### Membership Inference Defense
 
 ```bash
-path="--train_log=train_log/mia --train_img=train_img/mia --zca_path=data/zca --data_path=~/tensorflow_datasets --save_image=False"
+path="--train_log=train_log/mia --train_img=train_img/mia --zca_path=data/zca --data_path=data/tensorflow_datasets --save_image=False"
 exp="--dataset_name=mnist --num_prototypes_per_class=50 --learn_label=True --random_seed=0 --res_dir=mia/mnist/summary"
 arch="--arch=conv --width=128 --depth=3 --normalization=batch"
 hyper="--max_online_updates=100 --num_nn_state=10 --num_train_steps=500000"
