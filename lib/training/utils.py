@@ -340,12 +340,25 @@ def train_step(state, batch, rng, loss_type, l2_reg=0.0, has_feat=False, has_bn=
         else:
             variables = {'params': params}
 
+        # Choose mutable collections based on has_bn
+        mutable = ['batch_stats'] if has_bn else False
+
         if has_feat:
-            (logits, feat), new_model_state = state.apply_fn(variables, batch['image'], rngs={'dropout': rng},
-                                                             train=True, mutable=['batch_stats'])
+            out = state.apply_fn(variables, batch['image'], rngs={'dropout': rng},
+                                train=True, mutable=mutable)
+            if has_bn:
+                (logits, feat), new_model_state = out
+            else:
+                logits, feat = out
+                new_model_state = {}
         else:
-            logits, new_model_state = state.apply_fn(variables, batch['image'], rngs={'dropout': rng}, train=True,
-                                                     mutable=['batch_stats'])
+            out = state.apply_fn(variables, batch['image'], rngs={'dropout': rng}, train=True,
+                                mutable=mutable)
+            if has_bn:
+                logits, new_model_state = out
+            else:
+                logits = out
+                new_model_state = {}
 
         loss = loss_type(logits, batch['label']).mean()
         if l2_reg > 0.0:
