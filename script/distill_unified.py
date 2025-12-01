@@ -290,6 +290,10 @@ def main(
     # Data augmentation
     diff_aug = get_aug_by_name(aug_strategy, res=config.dataset.img_shape[0])
 
+    # Keep untransformed train dataset for prototype initialization
+    # init_proto needs integer labels to group by class
+    ds_train_raw = ds_train
+
     # Configure datasets
     y_transform = lambda y: tf.one_hot(
         y,
@@ -341,6 +345,7 @@ def main(
     final_state = method_instance.train_and_evaluate(
         config=config,
         dataset=dataset,
+        ds_train_raw=ds_train_raw,
         workdir=workdir,
         seed=random_seed,
         create_online_state=create_online_state,
