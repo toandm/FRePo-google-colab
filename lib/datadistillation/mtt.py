@@ -564,6 +564,12 @@ class MTTMethod(BaseDistillationMethod):
             partial(generic_train_step, train=False, loss_type=soft_cross_entropy_loss, has_bn=has_bn, has_feat=True)
         )
 
+        # Create training step for eval model (without batch norm)
+        # Eval model uses identity normalization, so has_bn=False
+        jit_eval_train_step = jax.jit(
+            partial(generic_train_step, loss_type=soft_cross_entropy_loss, has_bn=False, has_feat=True)
+        )
+
         # Collect expert trajectories FIRST
         logging.info('='  * 60)
         logging.info('PHASE 1: Collecting expert trajectories')
@@ -619,7 +625,7 @@ class MTTMethod(BaseDistillationMethod):
                     y_syn=y_syn,
                     ds_test=ds_test,
                     create_eval_state=create_eval_state,
-                    jit_nn_train_step=jit_nn_train_step,
+                    jit_nn_train_step=jit_eval_train_step,  # Use eval-specific train step
                     jit_nn_eval_step=jit_nn_eval_step,
                     rng=rng,
                     num_online_eval_updates=num_online_eval_updates,

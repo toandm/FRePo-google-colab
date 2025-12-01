@@ -244,7 +244,8 @@ class KIPMethod(BaseDistillationMethod):
             for i in range(0, n, chunk_size):
                 chunk = x[i:i+chunk_size]
                 # jac will have shape [chunk_size, output_dim, param_tree]
-                jac_chunk = jax.vmap(lambda xi: jac_fn(nn_state.params, xi[None])[0])(chunk)
+                # Remove batch dimension from each parameter's jacobian using tree_map
+                jac_chunk = jax.vmap(lambda xi: jax.tree_map(lambda j: j[0], jac_fn(nn_state.params, xi[None])))(chunk)
                 # Flatten jacobian to [chunk_size, output_dim * num_params]
                 jac_flat_chunk = jnp.concatenate([
                     j.reshape(j.shape[0], -1)
