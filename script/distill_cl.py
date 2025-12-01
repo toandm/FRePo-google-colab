@@ -244,6 +244,5 @@ def main(dataset_name, data_path=None, zca_path=None, train_log=None, train_img=
 
 
 if __name__ == '__main__':
-    tf.config.experimental.set_visible_devices([], 'GPU')
     logging.set_verbosity('info')
     fire.Fire(main)

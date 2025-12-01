@@ -78,17 +78,23 @@ def main(dataset_name, data_path=None, zca_path=None, train_log=None, train_img=
     config.train_log = train_log if train_log else 'train_log'
     config.train_img = train_img if train_img else 'train_img'
 
-    if not os.path.exists(train_log):
-        os.makedirs(train_log)
-    if not os.path.exists(train_img):
-        os.makedirs(train_img)
+    if not os.path.exists(config.train_log):
+        os.makedirs(config.train_log)
+    if not os.path.exists(config.train_img):
+        os.makedirs(config.train_img)
 
     try:
-        use_pmap = jax.device_count('gpu') > 1
+        num_gpus = jax.device_count('gpu')
     except RuntimeError:
-        use_pmap = False
+        num_gpus = 0
+
+    use_pmap = num_gpus > 1
     if use_pmap:
-        logging.info('Use Multi GPU Training. \n Number of GPUs: {}'.format(jax.device_count()))
+        logging.info('Use Multi GPU Training. \n Number of GPUs: {}'.format(num_gpus))
+    elif num_gpus == 1:
+        logging.info('Use Single GPU Training.')
+    else:
+        logging.info('Use CPU Training.')
 
     # --------------------------------------
     # Dataset
@@ -242,6 +248,5 @@ def main(dataset_name, data_path=None, zca_path=None, train_log=None, train_img=
 
 
 if __name__ == '__main__':
-    tf.config.experimental.set_visible_devices([], 'GPU')
     logging.set_verbosity('info')
     fire.Fire(main)
