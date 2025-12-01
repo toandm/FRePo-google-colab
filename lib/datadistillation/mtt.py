@@ -234,14 +234,21 @@ class MTTMethod(BaseDistillationMethod):
         # Training loop
         train_iter = ds_train.as_numpy_iterator()
 
-        for step in range(num_steps):
+        # Add progress bar
+        for step in tqdm.tqdm(range(num_steps), desc='Expert Training', leave=False):
             # Get batch
             batch = next(train_iter)
             img, lb = process_batch(batch, use_pmap=False)
 
-            # Training step
+            # Training step (first call will trigger JIT compilation)
+            if step == 0:
+                logging.info('Compiling training step (this may take a moment)...')
+
             rng, step_rng = jax.random.split(rng)
             expert_state, _ = jit_train_step(expert_state, {'image': img, 'label': lb}, step_rng)
+
+            if step == 0:
+                logging.info('Compilation complete, continuing training...')
 
             # Save checkpoint at intervals
             if (step + 1) % sample_interval == 0:
@@ -323,12 +330,16 @@ class MTTMethod(BaseDistillationMethod):
 
         def forward_loss(params):
             """Forward pass and compute loss."""
-            if hasattr(model_state, 'batch_stats'):
+            if hasattr(model_state, 'batch_stats') and model_state.batch_stats is not None:
                 variables = {'params': params, 'batch_stats': model_state.batch_stats}
-                logits = model_state.apply_fn(variables, batch['image'], train=True, mutable=False)[0]
+                # Need mutable=['batch_stats'] when train=True with BatchNorm
+                out, _ = model_state.apply_fn(variables, batch['image'], train=True, mutable=['batch_stats'])
+                # Handle tuple output
+                logits = out[0] if isinstance(out, tuple) else out
             else:
                 variables = {'params': params}
-                logits = model_state.apply_fn(variables, batch['image'], train=True, mutable=False)
+                out = model_state.apply_fn(variables, batch['image'], train=True, mutable=False)
+                logits = out
 
             loss = loss_fn(logits, batch['label']).mean()
             return loss
@@ -455,6 +466,7 @@ class MTTMethod(BaseDistillationMethod):
         dataset: Tuple[Any, Any],
         workdir: str,
         seed: int = 0,
+        ds_train_raw: Any = None,
         create_online_state: Callable = None,
         create_eval_state: Callable = None,
         diff_aug: Callable = None,
@@ -509,9 +521,12 @@ class MTTMethod(BaseDistillationMethod):
         num_classes = config.dataset.num_classes
         num_prototypes_per_class = config.kernel.num_prototypes // num_classes
 
+        # Use untransformed dataset if provided (for init_proto which needs integer labels)
+        ds_for_init = ds_train_raw if ds_train_raw is not None else ds_train
+
         logging.info(f'Initializing {config.kernel.num_prototypes} synthetic samples...')
         x_proto, y_proto = self.initialize_synthetic_data(
-            ds=ds_train,
+            ds=ds_for_init,
             num_prototypes_per_class=num_prototypes_per_class,
             num_classes=num_classes,
             seed=seed,
@@ -541,9 +556,12 @@ class MTTMethod(BaseDistillationMethod):
 
         # JIT compile training step
         from ..training.utils import train_step as generic_train_step
-        jit_nn_train_step = jax.jit(generic_train_step)
+        # has_feat=True because online model uses output='feat_fc'
+        jit_nn_train_step = jax.jit(
+            partial(generic_train_step, loss_type=soft_cross_entropy_loss, has_bn=has_bn, has_feat=True)
+        )
         jit_nn_eval_step = jax.jit(
-            partial(generic_train_step, train=False)
+            partial(generic_train_step, train=False, loss_type=soft_cross_entropy_loss, has_bn=has_bn, has_feat=True)
         )
 
         # Collect expert trajectories FIRST

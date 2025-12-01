@@ -203,6 +203,7 @@ class FRePoMethod(BaseDistillationMethod):
         dataset: Tuple[Any, Any],
         workdir: str,
         seed: int = 0,
+        ds_train_raw: Any = None,
         create_online_state: Callable = None,
         create_eval_state: Callable = None,
         diff_aug: Callable = None,
@@ -260,8 +261,11 @@ class FRePoMethod(BaseDistillationMethod):
         ds_train, ds_test = dataset
         num_classes = config.dataset.num_classes
 
+        # Use untransformed dataset if provided (for init_proto which needs integer labels)
+        ds_for_init = ds_train_raw if ds_train_raw is not None else ds_train
+
         x_proto, y_proto = self.initialize_synthetic_data(
-            ds=ds_train,
+            ds=ds_for_init,
             num_prototypes_per_class=config.kernel.num_prototypes // num_classes,
             num_classes=num_classes,
             seed=seed,
