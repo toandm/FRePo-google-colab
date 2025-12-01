@@ -234,24 +234,44 @@ class KIPMethod(BaseDistillationMethod):
         # For each input, compute jacobian w.r.t all parameters
         jac_fn = jax.jacobian(net_fn, argnums=0)
 
-        # Vectorize over batch dimension
-        def batched_jac(x):
-            """Compute jacobian for a batch of inputs."""
-            # jac will have shape [batch_size, output_dim, param_tree]
-            jac = jax.vmap(lambda xi: jac_fn(nn_state.params, xi[None])[0])(x)
-            # Flatten jacobian to [batch_size, output_dim * num_params]
-            jac_flat = jnp.concatenate([
-                j.reshape(j.shape[0], -1)
-                for j in jax.tree_util.tree_leaves(jac)
-            ], axis=-1)
-            return jac_flat
+        # Vectorize over batch dimension with chunking to avoid OOM
+        def batched_jac(x, chunk_size=8):
+            """Compute jacobian for a batch of inputs using chunked computation."""
+            n = x.shape[0]
+            jac_list = []
 
-        # Compute jacobians for both inputs
-        jac1 = batched_jac(x1)  # [N, D]
-        jac2 = batched_jac(x2)  # [M, D]
+            # Process in small chunks to avoid OOM
+            for i in range(0, n, chunk_size):
+                chunk = x[i:i+chunk_size]
+                # jac will have shape [chunk_size, output_dim, param_tree]
+                jac_chunk = jax.vmap(lambda xi: jac_fn(nn_state.params, xi[None])[0])(chunk)
+                # Flatten jacobian to [chunk_size, output_dim * num_params]
+                jac_flat_chunk = jnp.concatenate([
+                    j.reshape(j.shape[0], -1)
+                    for j in jax.tree_util.tree_leaves(jac_chunk)
+                ], axis=-1)
+                jac_list.append(jac_flat_chunk)
+
+            # Concatenate all chunks
+            return jnp.concatenate(jac_list, axis=0)
+
+        # Compute jacobians for both inputs with chunking
+        jac1 = batched_jac(x1, chunk_size=8)  # [N, D]
+        jac2 = batched_jac(x2, chunk_size=8)  # [M, D]
 
         # Compute kernel: K = J1 @ J2^T
-        kernel = jnp.dot(jac1, jac2.T)  # [N, M]
+        # For very large jacobians, compute in chunks to avoid OOM
+        n1, n2 = jac1.shape[0], jac2.shape[0]
+        if n1 * n2 > 10000:  # If kernel matrix is large, compute in chunks
+            kernel_rows = []
+            chunk_size = 16
+            for i in range(0, n1, chunk_size):
+                jac1_chunk = jac1[i:i+chunk_size]
+                kernel_chunk = jnp.dot(jac1_chunk, jac2.T)
+                kernel_rows.append(kernel_chunk)
+            kernel = jnp.concatenate(kernel_rows, axis=0)
+        else:
+            kernel = jnp.dot(jac1, jac2.T)  # [N, M]
 
         return kernel
 
@@ -375,8 +395,9 @@ class KIPMethod(BaseDistillationMethod):
             x_syn, y_syn = state.apply_fn({'params': params})
 
             # Compute kernels (use small batches to avoid memory issues)
-            # Sample a subset if batch is too large
-            max_samples = 256
+            # For KIP, we need very small batches to avoid OOM when computing Jacobians
+            # Empirical NTK requires computing Jacobian which has huge memory footprint
+            max_samples = 64  # Reduced from 256 to avoid OOM
             x_real = batch['image']
             y_real = batch['label']
 
@@ -618,7 +639,7 @@ class KIPMethod(BaseDistillationMethod):
             # Save images
             if image_saver and steps_per_save_image and (step + 1) % steps_per_save_image == 0:
                 x_syn, y_syn = self.get_synthetic_data(state)
-                image_saver(state=state, step=step + 1)
+                image_saver(proto_state=state, step=step + 1)
 
         logging.info(f'KIP training finished! Best accuracy: {best_acc:.2f}')
         return state
