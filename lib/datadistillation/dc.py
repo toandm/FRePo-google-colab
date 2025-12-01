@@ -551,7 +551,7 @@ class DCMethod(BaseDistillationMethod):
             # Save images
             if image_saver and steps_per_save_image and (step + 1) % steps_per_save_image == 0:
                 x_syn, y_syn = self.get_synthetic_data(state)
-                image_saver(state=state, step=step + 1)
+                image_saver(proto_state=state, step=step + 1)
 
         logging.info(f'DC training finished! Best accuracy: {best_acc:.2f}')
         return state
