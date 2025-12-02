@@ -1,3 +1,153 @@
+ C. QUICK EXPERIMENTS (30 phút - 1 giờ mỗi method)
+
+ 1. Test MTT
+
+ python3 -m script.distill_unified \
+   --method=mtt \
+   --dataset_name=cifar10 \
+   --num_prototypes_per_class=1 \
+   --num_train_steps=1000 \
+   --workdir=./experiments/mtt_quick_test \
+   --num_eval=3
+
+ 2. Test KIP
+
+ python3 -m script.distill_unified \
+   --method=kip \
+   --dataset_name=cifar10 \
+   --num_prototypes_per_class=1 \
+   --num_train_steps=1000 \
+   --workdir=./experiments/kip_quick_test \
+   --num_eval=3
+
+ 3. Baseline DC (để so sánh)
+
+ python3 -m script.distill_unified \
+   --method=dc \
+   --dataset_name=cifar10 \
+   --num_prototypes_per_class=1 \
+   --num_train_steps=1000 \
+   --workdir=./experiments/dc_baseline \
+   --num_eval=3
+
+ 4. Baseline DM (để so sánh)
+
+ python3 -m script.distill_unified \
+   --method=dm \
+   --dataset_name=cifar10 \
+   --num_prototypes_per_class=1 \
+   --num_train_steps=1000 \
+   --workdir=./experiments/dm_baseline \
+   --num_eval=3
+
+ D. COMPREHENSIVE BENCHMARKS (2-4 giờ mỗi config)
+
+ CIFAR-10 IPC=1 (10 synthetic images total)
+
+ # FRePo (baseline - đã hoạt động)
+ python3 -m script.distill \
+   --config=configs/cifar10_frepo.py \
+   --config.kernel.num_prototypes_per_class=1 \
+   --config.kernel.num_train_steps=50000 \
+   --workdir=./train_log/cifar10/frepo_ipc1
+
+ # MTT
+ python3 -m script.distill_unified \
+   --method=mtt \
+   --dataset_name=cifar10 \
+   --num_prototypes_per_class=1 \
+   --num_train_steps=50000 \
+   --expert_steps=1000 \
+   --num_expert_trajectories=5 \
+   --workdir=./train_log/cifar10/mtt_ipc1
+
+ # KIP
+ python3 -m script.distill_unified \
+   --method=kip \
+   --dataset_name=cifar10 \
+   --num_prototypes_per_class=1 \
+   --num_train_steps=50000 \
+   --use_ntk=True \
+   --workdir=./train_log/cifar10/kip_ipc1
+
+ # DC
+ python3 -m script.distill_unified \
+   --method=dc \
+   --dataset_name=cifar10 \
+   --num_prototypes_per_class=1 \
+   --num_train_steps=50000 \
+   --workdir=./train_log/cifar10/dc_ipc1
+
+ # DM
+ python3 -m script.distill_unified \
+   --method=dm \
+   --dataset_name=cifar10 \
+   --num_prototypes_per_class=1 \
+   --num_train_steps=50000 \
+   --workdir=./train_log/cifar10/dm_ipc1
+
+ CIFAR-10 IPC=10 (100 synthetic images)
+
+ # Thay --num_prototypes_per_class=10 cho tất cả commands trên
+ # VD cho MTT:
+ python3 -m script.distill_unified \
+   --method=mtt \
+   --dataset_name=cifar10 \
+   --num_prototypes_per_class=10 \
+   --num_train_steps=100000 \
+   --workdir=./train_log/cifar10/mtt_ipc10
+
+ CIFAR-100 IPC=1 (100 synthetic images)
+
+ # MTT on CIFAR-100
+ python3 -m script.distill_unified \
+   --method=mtt \
+   --dataset_name=cifar100 \
+   --num_prototypes_per_class=1 \
+   --num_train_steps=100000 \
+   --workdir=./train_log/cifar100/mtt_ipc1
+
+ # KIP on CIFAR-100
+ python3 -m script.distill_unified \
+   --method=kip \
+   --dataset_name=cifar100 \
+   --num_prototypes_per_class=1 \
+   --num_train_steps=100000 \
+   --workdir=./train_log/cifar100/kip_ipc1
+
+ E. EVALUATION
+
+ # Evaluate distilled dataset
+ python3 -m script.eval \
+   --ckpt_dir=./train_log/cifar10/mtt_ipc1/best_ckpt \
+   --dataset_name=cifar10 \
+   --num_eval=5 \
+   --architecture=convnet
+
+ # Cross-architecture evaluation
+ python3 -m script.eval \
+   --ckpt_dir=./train_log/cifar10/mtt_ipc1/best_ckpt \
+   --dataset_name=cifar10 \
+   --num_eval=5 \
+   --architecture=resnet18
+
+ python3 -m script.eval \
+   --ckpt_dir=./train_log/cifar10/mtt_ipc1/best_ckpt \
+   --dataset_name=cifar10 \
+   --num_eval=5 \
+   --architecture=alexnet
+
+ F. COMPARISON & ANALYSIS
+
+ # So sánh kết quả các methods
+ python3 -m script.compare_results \
+   --result_dirs \
+     ./train_log/cifar10/frepo_ipc1 \
+     ./train_log/cifar10/mtt_ipc1 \
+     ./train_log/cifar10/kip_ipc1 \
+     ./train_log/cifar10/dc_ipc1 \
+     ./train_log/cifar10/dm_ipc1 \
+   --output_file=./results/cifar10_ipc1_comparison.csv
 # Dataset Distillation using Neural Feature Regression (FRePo)
 
 [Project Page](https://sites.google.com/view/frepo) | [OpenReview](https://openreview.net/forum?id=2clwrA2tfik)
