@@ -245,7 +245,7 @@ class KIPMethod(BaseDistillationMethod):
                 chunk = x[i:i+chunk_size]
                 # jac will have shape [chunk_size, output_dim, param_tree]
                 # Remove batch dimension from each parameter's jacobian using tree_map
-                jac_chunk = jax.vmap(lambda xi: jax.tree_map(lambda j: j[0], jac_fn(nn_state.params, xi[None])))(chunk)
+                jac_chunk = jax.vmap(lambda xi: jax.tree_util.tree_map(lambda j: j[0], jac_fn(nn_state.params, xi[None])))(chunk)
                 # Flatten jacobian to [chunk_size, output_dim * num_params]
                 jac_flat_chunk = jnp.concatenate([
                     j.reshape(j.shape[0], -1)
@@ -563,7 +563,7 @@ class KIPMethod(BaseDistillationMethod):
             partial(generic_train_step, loss_type=soft_cross_entropy_loss, has_bn=has_bn, has_feat=True)
         )
         jit_nn_eval_step = jax.jit(
-            partial(generic_eval_step, loss_type=soft_cross_entropy_loss, has_bn=has_bn, has_feat=True, use_ema=False)
+            partial(generic_eval_step, loss_type=soft_cross_entropy_loss, has_bn=False, has_feat=True, use_ema=False)
         )
 
         # Training loop

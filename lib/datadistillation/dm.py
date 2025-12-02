@@ -506,7 +506,7 @@ class DMMethod(BaseDistillationMethod):
             partial(generic_train_step, loss_type=soft_cross_entropy_loss, has_bn=has_bn, has_feat=True)
         )
         jit_nn_eval_step = jax.jit(
-            partial(generic_eval_step, loss_type=soft_cross_entropy_loss, has_bn=has_bn, has_feat=True, use_ema=False)
+            partial(generic_eval_step, loss_type=soft_cross_entropy_loss, has_bn=False, has_feat=True, use_ema=False)
         )
 
         # Create training step for eval model (without batch norm)
