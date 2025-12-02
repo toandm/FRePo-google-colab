@@ -1,153 +1,371 @@
- C. QUICK EXPERIMENTS (30 phút - 1 giờ mỗi method)
+  📋 Cấu Trúc Tham Số Đầy Đủ
 
- 1. Test MTT
+ Tham Số BÁT BUỘC
+
+ --method=<method_name>           # frepo, mtt, kip, dc, dm
+ --dataset_name=<dataset>         # cifar10, cifar100, tiny_imagenet, etc.
+ --num_train_steps=<N>            # Số bước training
+
+ Tham Số Đường Dẫn (Có defaults, nhưng nên set rõ)
+
+ --data_path="<path>"             # Default: 'data/tensorflow_datasets'
+ --zca_path="<path>"              # Default: 'data/zca'
+ --train_log="<path>"             # Default: 'train_log'
+ --train_img="<path>"             # Default: 'train_img'
+
+ Tham Số Architecture
+
+ --arch=<architecture>            # Default: 'conv', choices: conv, resnet18, vgg11, alexnet
+ --width=<N>                      # Default: 128
+ --depth=<N>                      # Default: 3
+ --normalization=<type>           # Default: 'identity', choices: batch, layer, group, instance
+
+ Tham Số Training
+
+ --num_prototypes_per_class=<N>  # Default: 10, common: 1, 10, 50
+ --learn_label=<True|False>      # Default: True
+ --random_seed=<N>               # Default: 0
+ --save_image=<True|False>       # Default: True
+ --num_eval=<N>                  # Default: 5
+
+ Tham Số Method-Specific
+
+ FRePo:
+ --num_nn_state=<N>              # Default: 10, số models trong pool
+ --max_online_updates=<N>        # Default: 100, steps trước khi reset model
+
+ MTT:
+ --num_expert_trajectories=<N>   # Default: 5
+ --expert_steps=<N>              # Default: 1000
+ --trajectory_sample_interval=<N> # Default: 100
+
+ KIP:
+ --use_ntk=<True|False>          # Default: auto-detect
+ --kernel_reg=<float>            # Default: 1e-6
+
+ DC:
+ --distance_metric=<type>        # Default: 'mse', choices: mse, cosine, l1
+
+ DM:
+ --matching_type=<type>          # Default: 'mmd', choices: mmd, moment
+ --mmd_kernel=<type>             # Default: 'rbf', choices: rbf, linear, polynomial
+ --kernel_bandwidth=<float>      # Default: 1.0
+
+ 🚀 Commands Chạy Thí Nghiệm
+
+ 1. KIỂM TRA MÔI TRƯỜNG
+
+ # Kiểm tra JAX và GPU
+ python3 -c "import jax; print('JAX version:', jax.__version__); print('Devices:', jax.devices())"
+
+ # Kiểm tra dependencies
+ python3 -c "import flax, optax, tensorflow, ml_collections; print('✅ All dependencies OK')"
+
+ # Verify code không có syntax errors
+ python3 -m py_compile lib/datadistillation/mtt.py
+ python3 -m py_compile lib/datadistillation/kip.py
+
+ # List available methods
+ python3 -m script.distill_unified --list_methods
+
+ 2. SMOKE TEST (5-10 phút)
+
+ # Test gradient fixes - QUAN TRỌNG chạy đầu tiên
+ python3 test_gradient_fixes.py
+
+ # Kết quả kỳ vọng:
+ # ✅ MTT PASSED ALL TESTS
+ # ✅ KIP PASSED ALL TESTS
+
+ 3. QUICK TEST (30-60 phút mỗi method)
+
+ MTT Quick Test
 
  python3 -m script.distill_unified \
    --method=mtt \
    --dataset_name=cifar10 \
+   --train_log="$(pwd)/train_log" \
+   --train_img="$(pwd)/train_img" \
+   --zca_path="$(pwd)/data/zca" \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --arch=conv \
+   --width=128 \
+   --depth=3 \
+   --normalization=batch \
    --num_prototypes_per_class=1 \
    --num_train_steps=1000 \
-   --workdir=./experiments/mtt_quick_test \
+   --num_expert_trajectories=3 \
+   --expert_steps=500 \
+   --trajectory_sample_interval=100 \
+   --learn_label=True \
+   --save_image=True \
+   --random_seed=0 \
    --num_eval=3
 
- 2. Test KIP
+ KIP Quick Test
 
  python3 -m script.distill_unified \
    --method=kip \
    --dataset_name=cifar10 \
+   --train_log="$(pwd)/train_log" \
+   --train_img="$(pwd)/train_img" \
+   --zca_path="$(pwd)/data/zca" \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --arch=conv \
+   --width=128 \
+   --depth=3 \
+   --normalization=batch \
    --num_prototypes_per_class=1 \
    --num_train_steps=1000 \
-   --workdir=./experiments/kip_quick_test \
+   --use_ntk=True \
+   --kernel_reg=1e-6 \
+   --learn_label=True \
+   --save_image=True \
+   --random_seed=0 \
    --num_eval=3
 
- 3. Baseline DC (để so sánh)
+ DC Baseline
 
  python3 -m script.distill_unified \
    --method=dc \
    --dataset_name=cifar10 \
+   --train_log="$(pwd)/train_log" \
+   --train_img="$(pwd)/train_img" \
+   --zca_path="$(pwd)/data/zca" \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --arch=conv \
+   --width=128 \
+   --depth=3 \
+   --normalization=batch \
    --num_prototypes_per_class=1 \
    --num_train_steps=1000 \
-   --workdir=./experiments/dc_baseline \
+   --distance_metric=mse \
+   --learn_label=True \
+   --save_image=True \
+   --random_seed=0 \
    --num_eval=3
 
- 4. Baseline DM (để so sánh)
+ DM Baseline
 
  python3 -m script.distill_unified \
    --method=dm \
    --dataset_name=cifar10 \
+   --train_log="$(pwd)/train_log" \
+   --train_img="$(pwd)/train_img" \
+   --zca_path="$(pwd)/data/zca" \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --arch=conv \
+   --width=128 \
+   --depth=3 \
+   --normalization=batch \
    --num_prototypes_per_class=1 \
    --num_train_steps=1000 \
-   --workdir=./experiments/dm_baseline \
+   --matching_type=mmd \
+   --mmd_kernel=rbf \
+   --kernel_bandwidth=1.0 \
+   --learn_label=True \
+   --save_image=True \
+   --random_seed=0 \
    --num_eval=3
 
- D. COMPREHENSIVE BENCHMARKS (2-4 giờ mỗi config)
+ 4. FULL EXPERIMENTS - CIFAR-10 IPC=1 (2-4 giờ)
 
- CIFAR-10 IPC=1 (10 synthetic images total)
+ MTT Full
 
- # FRePo (baseline - đã hoạt động)
+ python3 -m script.distill_unified \
+   --method=mtt \
+   --dataset_name=cifar10 \
+   --train_log="$(pwd)/train_log" \
+   --train_img="$(pwd)/train_img" \
+   --zca_path="$(pwd)/data/zca" \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --arch=conv \
+   --width=128 \
+   --depth=3 \
+   --normalization=batch \
+   --num_prototypes_per_class=1 \
+   --num_train_steps=50000 \
+   --num_expert_trajectories=5 \
+   --expert_steps=1000 \
+   --trajectory_sample_interval=100 \
+   --learn_label=True \
+   --save_image=True \
+   --random_seed=0 \
+   --num_eval=5
+
+ KIP Full
+
+ python3 -m script.distill_unified \
+   --method=kip \
+   --dataset_name=cifar10 \
+   --train_log="$(pwd)/train_log" \
+   --train_img="$(pwd)/train_img" \
+   --zca_path="$(pwd)/data/zca" \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --arch=conv \
+   --width=128 \
+   --depth=3 \
+   --normalization=batch \
+   --num_prototypes_per_class=1 \
+   --num_train_steps=50000 \
+   --use_ntk=True \
+   --kernel_reg=1e-6 \
+   --learn_label=True \
+   --save_image=True \
+   --random_seed=0 \
+   --num_eval=5
+
+ FRePo Full (Original method - đã hoạt động)
+
  python3 -m script.distill \
    --config=configs/cifar10_frepo.py \
    --config.kernel.num_prototypes_per_class=1 \
    --config.kernel.num_train_steps=50000 \
-   --workdir=./train_log/cifar10/frepo_ipc1
+   --config.kernel.max_online_updates=100 \
+   --config.kernel.num_nn_state=10 \
+   --workdir="$(pwd)/train_log/cifar10/frepo_ipc1"
 
- # MTT
+ 5. FULL EXPERIMENTS - CIFAR-10 IPC=10 (3-6 giờ)
+
+ # MTT IPC=10
  python3 -m script.distill_unified \
    --method=mtt \
    --dataset_name=cifar10 \
-   --num_prototypes_per_class=1 \
-   --num_train_steps=50000 \
-   --expert_steps=1000 \
-   --num_expert_trajectories=5 \
-   --workdir=./train_log/cifar10/mtt_ipc1
-
- # KIP
- python3 -m script.distill_unified \
-   --method=kip \
-   --dataset_name=cifar10 \
-   --num_prototypes_per_class=1 \
-   --num_train_steps=50000 \
-   --use_ntk=True \
-   --workdir=./train_log/cifar10/kip_ipc1
-
- # DC
- python3 -m script.distill_unified \
-   --method=dc \
-   --dataset_name=cifar10 \
-   --num_prototypes_per_class=1 \
-   --num_train_steps=50000 \
-   --workdir=./train_log/cifar10/dc_ipc1
-
- # DM
- python3 -m script.distill_unified \
-   --method=dm \
-   --dataset_name=cifar10 \
-   --num_prototypes_per_class=1 \
-   --num_train_steps=50000 \
-   --workdir=./train_log/cifar10/dm_ipc1
-
- CIFAR-10 IPC=10 (100 synthetic images)
-
- # Thay --num_prototypes_per_class=10 cho tất cả commands trên
- # VD cho MTT:
- python3 -m script.distill_unified \
-   --method=mtt \
-   --dataset_name=cifar10 \
+   --train_log="$(pwd)/train_log" \
+   --train_img="$(pwd)/train_img" \
+   --zca_path="$(pwd)/data/zca" \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --arch=conv \
+   --width=128 \
+   --depth=3 \
+   --normalization=batch \
    --num_prototypes_per_class=10 \
    --num_train_steps=100000 \
-   --workdir=./train_log/cifar10/mtt_ipc10
+   --num_expert_trajectories=5 \
+   --expert_steps=1000 \
+   --learn_label=True \
+   --save_image=True \
+   --random_seed=0 \
+   --num_eval=5
 
- CIFAR-100 IPC=1 (100 synthetic images)
+ # KIP IPC=10
+ python3 -m script.distill_unified \
+   --method=kip \
+   --dataset_name=cifar10 \
+   --train_log="$(pwd)/train_log" \
+   --train_img="$(pwd)/train_img" \
+   --zca_path="$(pwd)/data/zca" \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --arch=conv \
+   --width=128 \
+   --depth=3 \
+   --normalization=batch \
+   --num_prototypes_per_class=10 \
+   --num_train_steps=100000 \
+   --use_ntk=True \
+   --learn_label=True \
+   --save_image=True \
+   --random_seed=0 \
+   --num_eval=5
 
- # MTT on CIFAR-100
+ 6. FULL EXPERIMENTS - CIFAR-100 (4-8 giờ)
+
+ CIFAR-100 IPC=1
+
  python3 -m script.distill_unified \
    --method=mtt \
    --dataset_name=cifar100 \
+   --train_log="$(pwd)/train_log" \
+   --train_img="$(pwd)/train_img" \
+   --zca_path="$(pwd)/data/zca" \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --arch=conv \
+   --width=128 \
+   --depth=3 \
+   --normalization=batch \
    --num_prototypes_per_class=1 \
    --num_train_steps=100000 \
-   --workdir=./train_log/cifar100/mtt_ipc1
+   --num_expert_trajectories=5 \
+   --expert_steps=1000 \
+   --learn_label=True \
+   --save_image=True \
+   --random_seed=0 \
+   --num_eval=5
 
- # KIP on CIFAR-100
+ CIFAR-100 IPC=10
+
  python3 -m script.distill_unified \
    --method=kip \
    --dataset_name=cifar100 \
-   --num_prototypes_per_class=1 \
-   --num_train_steps=100000 \
-   --workdir=./train_log/cifar100/kip_ipc1
+   --train_log="$(pwd)/train_log" \
+   --train_img="$(pwd)/train_img" \
+   --zca_path="$(pwd)/data/zca" \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --arch=conv \
+   --width=128 \
+   --depth=3 \
+   --normalization=batch \
+   --num_prototypes_per_class=10 \
+   --num_train_steps=200000 \
+   --use_ntk=True \
+   --learn_label=True \
+   --save_image=True \
+   --random_seed=0 \
+   --num_eval=5
 
- E. EVALUATION
+ 7. CROSS-ARCHITECTURE EVALUATION
 
- # Evaluate distilled dataset
+ # Evaluate trên ConvNet (baseline)
  python3 -m script.eval \
-   --ckpt_dir=./train_log/cifar10/mtt_ipc1/best_ckpt \
+   --ckpt_dir="$(pwd)/train_log/cifar10/step50K_num10/mtt_conv_w128_d3_batch_llTrue/seed0/best_ckpt"
+  \
    --dataset_name=cifar10 \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --zca_path="$(pwd)/data/zca" \
    --num_eval=5 \
-   --architecture=convnet
+   --architecture=conv
 
- # Cross-architecture evaluation
+ # Cross-architecture: ResNet-18
  python3 -m script.eval \
-   --ckpt_dir=./train_log/cifar10/mtt_ipc1/best_ckpt \
+   --ckpt_dir="$(pwd)/train_log/cifar10/step50K_num10/mtt_conv_w128_d3_batch_llTrue/seed0/best_ckpt"
+  \
    --dataset_name=cifar10 \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --zca_path="$(pwd)/data/zca" \
    --num_eval=5 \
    --architecture=resnet18
 
+ # Cross-architecture: AlexNet
  python3 -m script.eval \
-   --ckpt_dir=./train_log/cifar10/mtt_ipc1/best_ckpt \
+   --ckpt_dir="$(pwd)/train_log/cifar10/step50K_num10/mtt_conv_w128_d3_batch_llTrue/seed0/best_ckpt"
+  \
    --dataset_name=cifar10 \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --zca_path="$(pwd)/data/zca" \
    --num_eval=5 \
    --architecture=alexnet
 
- F. COMPARISON & ANALYSIS
+ # Cross-architecture: VGG-11
+ python3 -m script.eval \
+   --ckpt_dir="$(pwd)/train_log/cifar10/step50K_num10/mtt_conv_w128_d3_batch_llTrue/seed0/best_ckpt"
+  \
+   --dataset_name=cifar10 \
+   --data_path="$(pwd)/data/tensorflow_datasets" \
+   --zca_path="$(pwd)/data/zca" \
+   --num_eval=5 \
+   --architecture=vgg11
 
- # So sánh kết quả các methods
+ 8. SO SÁNH KẾT QUẢ
+
+ # So sánh tất cả methods
  python3 -m script.compare_results \
    --result_dirs \
-     ./train_log/cifar10/frepo_ipc1 \
-     ./train_log/cifar10/mtt_ipc1 \
-     ./train_log/cifar10/kip_ipc1 \
-     ./train_log/cifar10/dc_ipc1 \
-     ./train_log/cifar10/dm_ipc1 \
-   --output_file=./results/cifar10_ipc1_comparison.csv
+     "$(pwd)/train_log/cifar10/step50K_num10/frepo_conv_w128_d3_batch_llTrue/seed0" \
+     "$(pwd)/train_log/cifar10/step50K_num10/mtt_conv_w128_d3_batch_llTrue/seed0" \
+     "$(pwd)/train_log/cifar10/step50K_num10/kip_conv_w128_d3_batch_llTrue/seed0" \
+     "$(pwd)/train_log/cifar10/step50K_num10/dc_conv_w128_d3_batch_llTrue/seed0" \
+     "$(pwd)/train_log/cifar10/step50K_num10/dm_conv_w128_d3_batch_llTrue/seed0" \
+   --output_file="$(pwd)/results/cifar10_ipc1_comparison.csv"
 # Dataset Distillation using Neural Feature Regression (FRePo)
 
 [Project Page](https://sites.google.com/view/frepo) | [OpenReview](https://openreview.net/forum?id=2clwrA2tfik)

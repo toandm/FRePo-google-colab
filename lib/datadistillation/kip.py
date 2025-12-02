@@ -556,13 +556,14 @@ class KIPMethod(BaseDistillationMethod):
 
         # JIT compile training step
         from ..training.utils import train_step as generic_train_step
+        from ..training.utils import eval_step as generic_eval_step
         from ..training.metrics import soft_cross_entropy_loss
         # has_feat=True because online model uses output='feat_fc'
         jit_nn_train_step = jax.jit(
             partial(generic_train_step, loss_type=soft_cross_entropy_loss, has_bn=has_bn, has_feat=True)
         )
         jit_nn_eval_step = jax.jit(
-            partial(generic_train_step, train=False, loss_type=soft_cross_entropy_loss, has_bn=has_bn, has_feat=True)
+            partial(generic_eval_step, loss_type=soft_cross_entropy_loss, has_bn=has_bn, has_feat=True, use_ema=False)
         )
 
         # Training loop
