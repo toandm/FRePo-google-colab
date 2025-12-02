@@ -393,9 +393,9 @@ class DMMethod(BaseDistillationMethod):
         # Update synthetic data
         new_state = state.apply_gradients(grads=grads)
 
-        # Compute metrics
+        # Compute metrics - Convert JAX arrays to Python floats for TensorBoard
         metrics = {
-            'dm_loss': loss_value,
+            'dm_loss': float(loss_value),
         }
 
         return new_state, metrics
