@@ -318,9 +318,11 @@ class BaseDistillationMethod(ABC):
             summary = eval_on_proto_nn(ds_test, nn_state_eval, jit_nn_eval_step)
             accuracies.append(summary['accuracy'] * 100)
 
+        # Convert to Python float for TensorBoard compatibility
+        # JAX arrays are logged as tensors instead of scalars in TensorBoard
         return {
-            'accuracy_mean': jnp.mean(jnp.array(accuracies)),
-            'accuracy_std': jnp.std(jnp.array(accuracies))
+            'accuracy_mean': float(jnp.mean(jnp.array(accuracies))),
+            'accuracy_std': float(jnp.std(jnp.array(accuracies)))
         }
 
     def save_checkpoint(

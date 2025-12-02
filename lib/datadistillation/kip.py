@@ -451,11 +451,11 @@ class KIPMethod(BaseDistillationMethod):
         # Update synthetic data
         new_state = state.apply_gradients(grads=grads)
 
-        # Metrics
+        # Metrics - Convert JAX arrays to Python floats for TensorBoard
         metrics = {
-            'total_loss': total_loss,
-            'kernel_loss': kernel_loss,
-            'label_loss': label_loss,
+            'total_loss': float(total_loss),
+            'kernel_loss': float(kernel_loss),
+            'label_loss': float(label_loss),
         }
 
         return new_state, metrics

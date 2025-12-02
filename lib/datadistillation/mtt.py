@@ -458,9 +458,9 @@ class MTTMethod(BaseDistillationMethod):
         # Update synthetic data
         new_state = state.apply_gradients(grads=grads)
 
-        # Metrics
+        # Metrics - Convert JAX arrays to Python floats for TensorBoard
         metrics = {
-            'tm_loss': loss_value,
+            'tm_loss': float(loss_value),
         }
 
         return new_state, metrics

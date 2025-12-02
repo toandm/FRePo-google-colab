@@ -358,10 +358,11 @@ class DCMethod(BaseDistillationMethod):
             jnp.concatenate([g.flatten() for g in jax.tree_util.tree_leaves(grad_syn)])
         )
 
+        # Convert JAX arrays to Python floats for TensorBoard
         metrics = {
-            'gm_loss': gm_loss,
-            'grad_real_norm': grad_real_norm,
-            'grad_syn_norm': grad_syn_norm,
+            'gm_loss': float(gm_loss),
+            'grad_real_norm': float(grad_real_norm),
+            'grad_syn_norm': float(grad_syn_norm),
         }
 
         return new_state, metrics
