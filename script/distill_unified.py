@@ -219,6 +219,19 @@ def main(
         has_bn = False
         eval_normalization = normalization
 
+    # Set default num_train_steps if not provided
+    if num_train_steps is None:
+        # Set defaults based on dataset
+        if dataset_name in ['mnist', 'fashion_mnist']:
+            num_train_steps = 1000  # Faster datasets
+        elif dataset_name == 'cifar10':
+            num_train_steps = 3000  # Standard
+        elif dataset_name == 'cifar100':
+            num_train_steps = 5000  # Harder dataset needs more steps
+        else:
+            num_train_steps = 3000  # Default fallback
+        logging.info(f'num_train_steps not specified, using default: {num_train_steps}')
+
     # Logging
     steps_per_epoch = config.dataset.train_size // config.kernel.batch_size
 
