@@ -472,7 +472,7 @@ class DCMethod(BaseDistillationMethod):
             partial(
                 generic_eval_step,
                 loss_type=soft_cross_entropy_loss,
-                has_bn=has_bn,
+                has_bn=False,
                 has_feat=True,
                 use_ema=False
             )
