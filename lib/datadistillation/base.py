@@ -346,7 +346,8 @@ class BaseDistillationMethod(ABC):
         from flax.training import checkpoints
         import os
 
-        ckpt_dir = os.path.join(workdir, prefix)
+        # Convert to absolute path for Orbax compatibility
+        ckpt_dir = os.path.abspath(os.path.join(workdir, prefix))
         checkpoints.save_checkpoint(ckpt_dir, state, step, keep=keep)
 
     def restore_checkpoint(
@@ -369,7 +370,8 @@ class BaseDistillationMethod(ABC):
         from flax.training import checkpoints
         import os
 
-        ckpt_dir = os.path.join(workdir, prefix)
+        # Convert to absolute path for Orbax compatibility
+        ckpt_dir = os.path.abspath(os.path.join(workdir, prefix))
         return checkpoints.restore_checkpoint(ckpt_dir, state)
 
     def __repr__(self):

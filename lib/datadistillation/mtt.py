@@ -339,7 +339,8 @@ class MTTMethod(BaseDistillationMethod):
             else:
                 variables = {'params': params}
                 out = model_state.apply_fn(variables, batch['image'], train=True, mutable=False)
-                logits = out
+                # Handle tuple output (same as has_bn=True case)
+                logits = out[0] if isinstance(out, tuple) else out
 
             loss = loss_fn(logits, batch['label']).mean()
             return loss
