@@ -408,28 +408,33 @@ class MTTMethod(BaseDistillationMethod):
         if len(expert_trajectories) == 0:
             raise ValueError("No expert trajectories available. Run collect_expert_trajectories first.")
 
+        # FIX: Sample trajectory and checkpoint OUTSIDE loss_fn to avoid gradient issues
+        # Split RNG for trajectory and checkpoint sampling
+        rng, traj_rng, ckpt_rng = jax.random.split(rng, 3)
+
+        # Sample random trajectory
+        traj_idx = int(jax.random.choice(traj_rng, len(expert_trajectories)))
+        trajectory = expert_trajectories[traj_idx]
+
+        # Sample random checkpoint (not the last one, so we can get next step)
+        if len(trajectory.params_list) < 2:
+            checkpoint_idx = 0
+        else:
+            checkpoint_idx = int(jax.random.choice(ckpt_rng, len(trajectory.params_list) - 1))
+
+        # Get expert parameters at this checkpoint (before loss_fn)
+        expert_params = trajectory.params_list[checkpoint_idx]
+
+        # Create temporary model state with expert parameters
+        temp_model_state = dataclasses.replace(nn_state, params=expert_params)
+
         def loss_fn(params):
             """Compute trajectory matching loss."""
             # Get current synthetic data
             x_syn, y_syn = state.apply_fn({'params': params})
 
-            # Sample random trajectory
-            traj_idx = jax.random.choice(rng, len(expert_trajectories))
-            trajectory = expert_trajectories[traj_idx]
-
-            # Sample random checkpoint (not the last one, so we can get next step)
-            if len(trajectory.params_list) < 2:
-                checkpoint_idx = 0
-            else:
-                checkpoint_idx = jax.random.choice(rng, len(trajectory.params_list) - 1)
-
-            # Get expert parameters at this checkpoint
-            expert_params = trajectory.params_list[checkpoint_idx]
-
-            # Create temporary model state with expert parameters
-            temp_model_state = dataclasses.replace(nn_state, params=expert_params)
-
             # Compute gradient on synthetic data from expert checkpoint
+            # Uses temp_model_state and batch from closure (deterministic)
             grad_synthetic = self.compute_trajectory_gradient(
                 temp_model_state,
                 {'image': x_syn, 'label': y_syn}

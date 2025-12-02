@@ -390,36 +390,39 @@ class KIPMethod(BaseDistillationMethod):
         Returns:
             Tuple of (new_state, metrics)
         """
+        # FIX: Sample real data OUTSIDE loss_fn to avoid gradient issues
+        # Split RNG for sampling
+        rng, sample_rng = jax.random.split(rng)
+
+        # Pre-sample real data to reduce memory (real dataset can be very large)
+        max_samples = 64  # Reduced from 256 to avoid OOM during NTK computation
+        x_real = batch['image']
+        y_real = batch['label']
+
+        if x_real.shape[0] > max_samples:
+            # Randomly sample real data (before loss_fn)
+            real_indices = jax.random.choice(sample_rng, x_real.shape[0], shape=(max_samples,), replace=False)
+            x_real_sampled = x_real[real_indices]
+            y_real_sampled = y_real[real_indices]
+        else:
+            x_real_sampled = x_real
+            y_real_sampled = y_real
+
         def loss_fn(params):
             """Compute KIP loss."""
             # Get current synthetic data
             x_syn, y_syn = state.apply_fn({'params': params})
 
-            # Compute kernels (use small batches to avoid memory issues)
-            # For KIP, we need very small batches to avoid OOM when computing Jacobians
-            # Empirical NTK requires computing Jacobian which has huge memory footprint
-            max_samples = 64  # Reduced from 256 to avoid OOM
-            x_real = batch['image']
-            y_real = batch['label']
+            # Use ALL synthetic data (no sampling needed)
+            # For typical IPC values (1-50), synthetic dataset is small (<500 images)
+            # No need to subsample - use full synthetic dataset for better gradient signal
+            x_syn_sample = x_syn
+            y_syn_sample = y_syn
 
-            if x_real.shape[0] > max_samples:
-                # Randomly sample
-                indices = jax.random.choice(rng, x_real.shape[0], shape=(max_samples,), replace=False)
-                x_real = x_real[indices]
-                y_real = y_real[indices]
-
-            if x_syn.shape[0] > max_samples:
-                indices = jax.random.choice(rng, x_syn.shape[0], shape=(max_samples,), replace=False)
-                x_syn_sample = x_syn[indices]
-                y_syn_sample = y_syn[indices]
-            else:
-                x_syn_sample = x_syn
-                y_syn_sample = y_syn
-
-            # Compute NTK matrices
-            K_real = self.compute_ntk(nn_state, x_real, x_real)
+            # Compute NTK matrices using pre-sampled real data (from closure)
+            K_real = self.compute_ntk(nn_state, x_real_sampled, x_real_sampled)
             K_syn = self.compute_ntk(nn_state, x_syn_sample, x_syn_sample)
-            K_cross = self.compute_ntk(nn_state, x_real, x_syn_sample)
+            K_cross = self.compute_ntk(nn_state, x_real_sampled, x_syn_sample)
 
             # Kernel alignment loss
             kernel_loss = self.kernel_alignment_loss(K_real, K_syn, K_cross, self.kernel_reg)
@@ -428,8 +431,8 @@ class KIPMethod(BaseDistillationMethod):
             # Encourage synthetic labels to span the label space
             label_loss = 0.0
             if self.learn_label and self.label_alignment_weight > 0:
-                # Mean of labels should be similar
-                label_mean_real = jnp.mean(y_real, axis=0)
+                # Mean of labels should be similar (using pre-sampled real data)
+                label_mean_real = jnp.mean(y_real_sampled, axis=0)
                 label_mean_syn = jnp.mean(y_syn, axis=0)
                 label_loss = jnp.mean((label_mean_real - label_mean_syn) ** 2)
 
