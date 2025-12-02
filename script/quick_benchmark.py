@@ -178,7 +178,8 @@ def main(
     base_img_dir: str = 'train_img',
     skip_existing: bool = False,
     dry_run: bool = False,
-    stop_on_error: bool = False
+    stop_on_error: bool = False,
+    auto_confirm: bool = False
 ):
     """
     Run quick benchmark experiments for all combinations.
@@ -195,6 +196,7 @@ def main(
         skip_existing: Skip experiments that already have results (default: False)
         dry_run: Print commands without executing (default: False)
         stop_on_error: Stop if any experiment fails (default: False)
+        auto_confirm: Skip confirmation prompt (useful for Colab) (default: False)
     """
     print("="*70)
     print("QUICK BENCHMARK - Minimal Config for Pipeline Testing")
@@ -240,14 +242,16 @@ def main(
         print("No experiments to run!")
         return 0
 
-    # Confirm before starting
-    if not dry_run:
+    # Confirm before starting (unless auto_confirm is True)
+    if not dry_run and not auto_confirm:
         print("\nPress Enter to start, or Ctrl+C to cancel...")
         try:
             input()
         except KeyboardInterrupt:
             print("\nCancelled by user")
             return 1
+    elif auto_confirm:
+        print("\nAuto-confirm enabled, starting immediately...")
 
     # Run all experiments
     failed = []

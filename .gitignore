@@ -139,6 +139,5 @@ __azurite_db*__.json
 .vscode
 .claude
 toan_test*
-train_log
 data
 ~
