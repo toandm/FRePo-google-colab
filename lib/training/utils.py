@@ -189,6 +189,9 @@ def save_checkpoint(state, path, step_or_metric=None, keep=1):
         step_or_metric (int of float): Current training step or metric to identify the checkpoint.
         path (str): Path to the checkpoint directory.
     """
+    # Convert to absolute path for Orbax compatibility
+    path = os.path.abspath(path)
+
     if jax.device_count() > 1:
         if jax.process_index() == 0:
             state = jax.device_get(jax.tree_util.tree_map(lambda x: x[0], state))
