@@ -96,9 +96,9 @@ def stack_expert_trajectories(trajectories: List[ExpertTrajectory]) -> Dict[str,
 
     # Convert to stacked PyTree
     # stacked_params is List[List[Dict]] -> need to convert to Dict with stacked arrays
-    stacked_pytree = jax.tree_map(
+    stacked_pytree = jax.tree_util.tree_map(
         lambda *arrays: jnp.stack(arrays, axis=0),
-        *[jax.tree_map(
+        *[jax.tree_util.tree_map(
             lambda *ckpt_params: jnp.stack(ckpt_params, axis=0),
             *traj_params
         ) for traj_params in stacked_params]
@@ -477,7 +477,7 @@ class MTTMethod(BaseDistillationMethod):
 
         # Get expert parameters at this checkpoint using JAX indexing
         # expert_params has shape [num_traj, num_ckpt, ...] -> index to get [...]
-        expert_params = jax.tree_map(
+        expert_params = jax.tree_util.tree_map(
             lambda x: x[traj_idx, checkpoint_idx],
             expert_trajectories_stacked['params']
         )

@@ -516,7 +516,7 @@ class DMMethod(BaseDistillationMethod):
         )
 
         # Create JIT-compiled distillation step for speedup
-        jit_distillation_step = jax.jit(self.distillation_step)
+        jit_distillation_step = jax.jit(self.distillation_step, static_argnames=['feat_fn'])
 
         # Training loop
         logging.info(f'Starting DM training for {num_train_steps} steps...')
