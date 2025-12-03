@@ -358,11 +358,11 @@ class DCMethod(BaseDistillationMethod):
             jnp.concatenate([g.flatten() for g in jax.tree_util.tree_leaves(grad_syn)])
         )
 
-        # Convert JAX arrays to Python floats for TensorBoard
+        # Return JAX arrays - conversion happens outside JIT boundary
         metrics = {
-            'gm_loss': float(gm_loss),
-            'grad_real_norm': float(grad_real_norm),
-            'grad_syn_norm': float(grad_syn_norm),
+            'gm_loss': gm_loss,
+            'grad_real_norm': grad_real_norm,
+            'grad_syn_norm': grad_syn_norm,
         }
 
         return new_state, metrics
@@ -485,6 +485,9 @@ class DCMethod(BaseDistillationMethod):
             partial(generic_train_step, loss_type=soft_cross_entropy_loss, has_bn=False, has_feat=True)
         )
 
+        # Create JIT-compiled distillation step for speedup
+        jit_distillation_step = jax.jit(self.distillation_step)
+
         # Training loop
         logging.info(f'Starting DC training for {num_train_steps} steps...')
 
@@ -496,9 +499,9 @@ class DCMethod(BaseDistillationMethod):
             batch = next(train_iter)
             img, lb = process_batch(batch, use_pmap=False)
 
-            # Distillation step
+            # Distillation step (JIT-compiled for speedup)
             rng, step_rng = jax.random.split(rng)
-            state, metrics = self.distillation_step(
+            state, metrics = jit_distillation_step(
                 state=state,
                 nn_state=nn_state,
                 batch={'image': img, 'label': lb},

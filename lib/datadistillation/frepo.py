@@ -253,15 +253,15 @@ def proto_train_step(state, nn_state, batch, use_flip=False, feat_fn=None):
 
     accuracy, top5accuracy, kernel_loss, lb_loss = aux[1]
 
-    # Convert JAX arrays to Python floats for TensorBoard
+    # Return JAX arrays - conversion happens in get_metrics()
     metrics = {
-        "total_loss": float(aux[0]),
-        "accuracy": float(accuracy),
-        "top5accuracy": float(top5accuracy),
-        "kernel_loss": float(kernel_loss),
-        "label_loss": float(lb_loss),
-        "grad_norm_x": float(jnp.mean(grad_norm_x)),
-        "grad_norm_y": float(jnp.mean(grad_norm_y)),
+        "total_loss": aux[0],
+        "accuracy": accuracy,
+        "top5accuracy": top5accuracy,
+        "kernel_loss": kernel_loss,
+        "label_loss": lb_loss,
+        "grad_norm_x": jnp.mean(grad_norm_x),
+        "grad_norm_y": jnp.mean(grad_norm_y),
     }
 
     new_state = state.apply_gradients(grads=grads)

@@ -302,7 +302,7 @@ class KIPMethod(BaseDistillationMethod):
             # Use neural_tangents library for exact NTK
             # Note: This requires the model to be a pure function
             # For simplicity, we'll use empirical NTK in this implementation
-            logging.info("Using empirical NTK (neural_tangents integration not fully implemented)")
+            # Removed logging.info() for JIT compatibility
             return self.compute_empirical_ntk(nn_state, x1, x2)
         else:
             # Use empirical NTK
@@ -451,11 +451,11 @@ class KIPMethod(BaseDistillationMethod):
         # Update synthetic data
         new_state = state.apply_gradients(grads=grads)
 
-        # Metrics - Convert JAX arrays to Python floats for TensorBoard
+        # Return JAX arrays - conversion happens outside JIT boundary
         metrics = {
-            'total_loss': float(total_loss),
-            'kernel_loss': float(kernel_loss),
-            'label_loss': float(label_loss),
+            'total_loss': total_loss,
+            'kernel_loss': kernel_loss,
+            'label_loss': label_loss,
         }
 
         return new_state, metrics
@@ -573,6 +573,10 @@ class KIPMethod(BaseDistillationMethod):
         else:
             logging.info('Using empirical kernel')
 
+        # Create JIT-compiled distillation step for speedup
+        # Note: KIP's NTK computation may limit JIT speedup due to compute-bound nature
+        jit_distillation_step = jax.jit(self.distillation_step)
+
         best_acc = 0.0
         train_iter = ds_train.as_numpy_iterator()
 
@@ -581,9 +585,9 @@ class KIPMethod(BaseDistillationMethod):
             batch = next(train_iter)
             img, lb = process_batch(batch, use_pmap=False)
 
-            # Distillation step
+            # Distillation step (JIT-compiled for speedup)
             rng, step_rng = jax.random.split(rng)
-            state, metrics = self.distillation_step(
+            state, metrics = jit_distillation_step(
                 state=state,
                 nn_state=nn_state,
                 batch={'image': img, 'label': lb},
