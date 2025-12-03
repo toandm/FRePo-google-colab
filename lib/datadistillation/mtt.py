@@ -60,6 +60,57 @@ class ExpertTrajectory:
     final_step: int
 
 
+def stack_expert_trajectories(trajectories: List[ExpertTrajectory]) -> Dict[str, Any]:
+    """
+    Convert list of ExpertTrajectory to stacked JAX arrays for JIT compatibility.
+
+    Args:
+        trajectories: List of ExpertTrajectory objects
+
+    Returns:
+        Dictionary with stacked parameters:
+        - 'params': PyTree with shape [num_traj, num_ckpt, ...]
+        - 'num_checkpoints': Array of checkpoint counts per trajectory
+        - 'max_checkpoints': Maximum number of checkpoints across trajectories
+    """
+    import jax.numpy as jnp
+
+    if not trajectories:
+        raise ValueError("Cannot stack empty trajectory list")
+
+    num_traj = len(trajectories)
+
+    # Find max number of checkpoints across all trajectories
+    checkpoint_counts = [len(traj.params_list) for traj in trajectories]
+    max_ckpts = max(checkpoint_counts)
+
+    # Stack all parameters into [num_traj, num_ckpt, ...] structure
+    # Pad shorter trajectories by repeating their last checkpoint
+    stacked_params = []
+    for traj in trajectories:
+        traj_params = traj.params_list
+        # Pad if necessary
+        while len(traj_params) < max_ckpts:
+            traj_params = traj_params + [traj_params[-1]]
+        stacked_params.append(traj_params)
+
+    # Convert to stacked PyTree
+    # stacked_params is List[List[Dict]] -> need to convert to Dict with stacked arrays
+    stacked_pytree = jax.tree_map(
+        lambda *arrays: jnp.stack(arrays, axis=0),
+        *[jax.tree_map(
+            lambda *ckpt_params: jnp.stack(ckpt_params, axis=0),
+            *traj_params
+        ) for traj_params in stacked_params]
+    )
+
+    return {
+        'params': stacked_pytree,
+        'num_checkpoints': jnp.array(checkpoint_counts, dtype=jnp.int32),
+        'max_checkpoints': max_ckpts
+    }
+
+
 @DistillationMethodRegistry.register('mtt')
 class MTTMethod(BaseDistillationMethod):
     """
@@ -121,6 +172,7 @@ class MTTMethod(BaseDistillationMethod):
 
         # Trajectory buffer (will be populated during training)
         self.expert_trajectories: List[ExpertTrajectory] = []
+        self.expert_trajectories_stacked = None  # JIT-compatible stacked version
 
     def initialize_synthetic_data(
         self,
@@ -378,11 +430,11 @@ class MTTMethod(BaseDistillationMethod):
         nn_state: Any,
         batch: Dict[str, Array],
         rng: PRNGKey,
-        expert_trajectories: List[ExpertTrajectory] = None,
+        expert_trajectories_stacked: Dict[str, Any] = None,
         **kwargs
     ) -> Tuple[Any, Dict[str, float]]:
         """
-        Perform one MTT distillation step.
+        Perform one MTT distillation step (JIT-compatible version).
 
         Algorithm:
             1. Sample a random expert trajectory
@@ -397,34 +449,38 @@ class MTTMethod(BaseDistillationMethod):
             nn_state: Current model state (not used, kept for interface compatibility)
             batch: Real data batch (used to compute expert gradient)
             rng: JAX random key
-            expert_trajectories: List of expert trajectories (default: self.expert_trajectories)
+            expert_trajectories_stacked: Stacked trajectories (default: self.expert_trajectories_stacked)
             **kwargs: Additional parameters
 
         Returns:
             Tuple of (new_state, metrics)
         """
-        if expert_trajectories is None:
-            expert_trajectories = self.expert_trajectories
+        if expert_trajectories_stacked is None:
+            expert_trajectories_stacked = self.expert_trajectories_stacked
 
-        if len(expert_trajectories) == 0:
+        if expert_trajectories_stacked is None:
             raise ValueError("No expert trajectories available. Run collect_expert_trajectories first.")
 
-        # FIX: Sample trajectory and checkpoint OUTSIDE loss_fn to avoid gradient issues
         # Split RNG for trajectory and checkpoint sampling
         rng, traj_rng, ckpt_rng = jax.random.split(rng, 3)
 
-        # Sample random trajectory
-        traj_idx = int(jax.random.choice(traj_rng, len(expert_trajectories)))
-        trajectory = expert_trajectories[traj_idx]
+        # Sample random trajectory index (JAX array, not Python int)
+        # Get num_traj from first leaf of params pytree
+        first_param = jax.tree_util.tree_leaves(expert_trajectories_stacked['params'])[0]
+        num_traj = first_param.shape[0]
+        traj_idx = jax.random.choice(traj_rng, num_traj)
 
-        # Sample random checkpoint (not the last one, so we can get next step)
-        if len(trajectory.params_list) < 2:
-            checkpoint_idx = 0
-        else:
-            checkpoint_idx = int(jax.random.choice(ckpt_rng, len(trajectory.params_list) - 1))
+        # Sample random checkpoint index (JAX array, not Python int)
+        max_ckpts = expert_trajectories_stacked['max_checkpoints']
+        # Ensure we don't sample the last checkpoint (need next step for matching)
+        checkpoint_idx = jax.random.choice(ckpt_rng, max_ckpts - 1)
 
-        # Get expert parameters at this checkpoint (before loss_fn)
-        expert_params = trajectory.params_list[checkpoint_idx]
+        # Get expert parameters at this checkpoint using JAX indexing
+        # expert_params has shape [num_traj, num_ckpt, ...] -> index to get [...]
+        expert_params = jax.tree_map(
+            lambda x: x[traj_idx, checkpoint_idx],
+            expert_trajectories_stacked['params']
+        )
 
         # Create temporary model state with expert parameters
         temp_model_state = dataclasses.replace(nn_state, params=expert_params)
@@ -459,9 +515,9 @@ class MTTMethod(BaseDistillationMethod):
         # Update synthetic data
         new_state = state.apply_gradients(grads=grads)
 
-        # Metrics - Convert JAX arrays to Python floats for TensorBoard
+        # Return JAX arrays - conversion happens outside JIT boundary
         metrics = {
-            'tm_loss': float(loss_value),
+            'tm_loss': loss_value,
         }
 
         return new_state, metrics
@@ -591,9 +647,19 @@ class MTTMethod(BaseDistillationMethod):
             num_trajectories=self.num_expert_trajectories
         )
 
+        logging.info(f'Collected {len(self.expert_trajectories)} expert trajectories')
+
+        # Stack trajectories for JIT compilation
+        logging.info('Stacking expert trajectories for JIT compilation...')
+        self.expert_trajectories_stacked = stack_expert_trajectories(self.expert_trajectories)
+        logging.info(f'Stacked to shape: num_traj={len(self.expert_trajectories)}, max_ckpt={self.expert_trajectories_stacked["max_checkpoints"]}')
+
         logging.info('='  * 60)
         logging.info('PHASE 2: Training on synthetic data via trajectory matching')
         logging.info('=' * 60)
+
+        # Create JIT-compiled distillation step for speedup
+        jit_distillation_step = jax.jit(self.distillation_step)
 
         # Training loop
         best_acc = 0.0
@@ -604,14 +670,14 @@ class MTTMethod(BaseDistillationMethod):
             batch = next(train_iter)
             img, lb = process_batch(batch, use_pmap=False)
 
-            # Distillation step
+            # Distillation step (JIT-compiled for speedup)
             rng, step_rng = jax.random.split(rng)
-            state, metrics = self.distillation_step(
+            state, metrics = jit_distillation_step(
                 state=state,
                 nn_state=nn_state,
                 batch={'image': img, 'label': lb},
                 rng=step_rng,
-                expert_trajectories=self.expert_trajectories
+                expert_trajectories_stacked=self.expert_trajectories_stacked
             )
 
             # Logging
