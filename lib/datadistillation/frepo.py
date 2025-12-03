@@ -688,6 +688,9 @@ def proto_train_and_evaluate(
 
     train_metrics = []
 
+    # Track all metrics for JSON backup
+    all_metrics = []
+
     train_metrics_last_t = time.time()
     logging.info("Initial compilation, this might take some minutes...")
 
@@ -746,7 +749,15 @@ def proto_train_and_evaluate(
             summary["proto/y_proto_margin_max"] = y_proto_margin.max()
             summary["proto/y_proto_margin_min"] = y_proto_margin.min()
 
-            writer.write_scalars(step + 1, summary)
+            # Save training metrics to JSON backup
+            train_summary = {k: float(v) for k, v in summary.items()}
+            train_summary['step'] = step + 1
+            all_metrics.append(train_summary)
+
+            try:
+                writer.write_scalars(step + 1, summary)
+            except Exception as e:
+                logging.warning(f'Failed to write to TensorBoard: {e}')
             train_metrics = []
             train_metrics_last_t = time.time()
 
@@ -793,9 +804,21 @@ def proto_train_and_evaluate(
                 step_acc.append(accuracy)
 
             accuracy = np.mean(step_acc)
-            writer.write_scalars(step + 1, {f"eval/step_acc_mean": np.mean(step_acc)})
-            writer.write_scalars(step + 1, {f"eval/step_std": np.std(step_acc)})
-            writer.flush()
+
+            # Save eval metrics to JSON backup
+            eval_summary = {
+                'step': step + 1,
+                'eval/step_acc_mean': float(np.mean(step_acc)),
+                'eval/step_std': float(np.std(step_acc))
+            }
+            all_metrics.append(eval_summary)
+
+            try:
+                writer.write_scalars(step + 1, {f"eval/step_acc_mean": np.mean(step_acc)})
+                writer.write_scalars(step + 1, {f"eval/step_std": np.std(step_acc)})
+                writer.flush()
+            except Exception as e:
+                logging.warning(f'Failed to write to TensorBoard: {e}')
 
         # --------------------------------------
         # Save state and visualization
@@ -871,6 +894,33 @@ def proto_train_and_evaluate(
                 or (step + 1) == num_train_steps
             ):
                 image_saver(state, step=step + 1, use_pmap=use_pmap)
+
+    # Save metrics to JSON file as backup
+    import json
+    metrics_file = os.path.join(workdir, 'metrics.json')
+    try:
+        with open(metrics_file, 'w') as f:
+            json.dump(all_metrics, f, indent=2)
+        logging.info(f'Saved metrics to {metrics_file}')
+    except Exception as e:
+        logging.warning(f'Failed to save metrics to JSON: {e}')
+
+    # Print final summary
+    print('\n' + '='*70)
+    print('TRAINING SUMMARY')
+    print('='*70)
+    print(f'Method: FRePo')
+    print(f'Total steps: {num_train_steps}')
+    print(f'Best accuracy: {best_val_acc:.2f}%')
+    print(f'Workdir: {workdir}')
+    print(f'Metrics saved to: {metrics_file}')
+
+    eval_metrics_list = [m for m in all_metrics if 'eval/step_acc_mean' in m]
+    if eval_metrics_list:
+        print(f'\nEvaluation history:')
+        for m in eval_metrics_list[-3:]:
+            print(f"  Step {m['step']}: {m['eval/step_acc_mean']:.2f}% ± {m.get('eval/step_std', 0.0):.2f}%")
+    print('='*70 + '\n')
 
     if use_pmap:
         return flax.jax_utils.unreplicate(state)

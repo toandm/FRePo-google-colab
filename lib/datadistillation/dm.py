@@ -17,6 +17,7 @@ Key idea:
 from typing import Any, Tuple, Callable, Dict
 from functools import partial
 import dataclasses
+import os
 
 import jax
 import jax.numpy as jnp
