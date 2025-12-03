@@ -330,7 +330,11 @@ def main(
     # Parse formats
     if formats == 'all':
         format_list = ['latex', 'markdown', 'csv']
+    elif isinstance(formats, (list, tuple)):
+        # Fire sometimes passes comma-separated values as tuples
+        format_list = [f.strip().lower() for f in formats]
     else:
+        # String format
         format_list = [f.strip().lower() for f in formats.split(',')]
 
     # Scan experiments
