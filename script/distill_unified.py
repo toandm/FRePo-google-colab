@@ -244,6 +244,11 @@ def main(
 
     image_dir = os.path.join(config.train_img, exp_name)
     workdir = os.path.join(config.train_log, exp_name)
+
+    # Ensure workdir exists before creating writer
+    if not os.path.exists(workdir):
+        os.makedirs(workdir)
+
     writer = metric_writers.create_default_writer(logdir=workdir)
     logging.info(f'Working directory: {workdir}')
 
