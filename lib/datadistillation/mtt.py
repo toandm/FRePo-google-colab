@@ -468,12 +468,12 @@ class MTTMethod(BaseDistillationMethod):
         # Get num_traj from first leaf of params pytree
         first_param = jax.tree_util.tree_leaves(expert_trajectories_stacked['params'])[0]
         num_traj = first_param.shape[0]
-        traj_idx = jax.random.choice(traj_rng, num_traj)
+        traj_idx = jax.random.randint(traj_rng, shape=(), minval=0, maxval=num_traj)
 
         # Sample random checkpoint index (JAX array, not Python int)
         max_ckpts = expert_trajectories_stacked['max_checkpoints']
         # Ensure we don't sample the last checkpoint (need next step for matching)
-        checkpoint_idx = jax.random.choice(ckpt_rng, max_ckpts - 1)
+        checkpoint_idx = jax.random.randint(ckpt_rng, shape=(), minval=0, maxval=max_ckpts - 1)
 
         # Get expert parameters at this checkpoint using JAX indexing
         # expert_params has shape [num_traj, num_ckpt, ...] -> index to get [...]
