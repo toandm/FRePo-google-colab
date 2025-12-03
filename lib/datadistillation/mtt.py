@@ -665,6 +665,9 @@ class MTTMethod(BaseDistillationMethod):
         best_acc = 0.0
         train_iter = ds_train.as_numpy_iterator()
 
+        # Track all metrics for JSON backup
+        all_metrics = []
+
         for step in tqdm.tqdm(range(num_train_steps), desc='MTT Training'):
             # Get batch
             batch = next(train_iter)
@@ -682,9 +685,17 @@ class MTTMethod(BaseDistillationMethod):
 
             # Logging
             if (step + 1) % steps_per_log == 0:
+                # Convert JAX arrays to Python floats for JSON serialization
+                train_metrics = {f'train/{k}': float(v) for k, v in metrics.items()}
+                train_metrics['step'] = step + 1
+                all_metrics.append(train_metrics)
+
                 if writer is not None:
-                    writer.write_scalars(step + 1, {f'train/{k}': v for k, v in metrics.items()})
-                    writer.flush()
+                    try:
+                        writer.write_scalars(step + 1, {f'train/{k}': v for k, v in metrics.items()})
+                        writer.flush()
+                    except Exception as e:
+                        logging.warning(f'Failed to write to TensorBoard: {e}')
                 logging.info(f'Step {step + 1}: {metrics}')
 
             # Evaluation
@@ -711,12 +722,23 @@ class MTTMethod(BaseDistillationMethod):
 
                 logging.info(f'Step {step + 1} - Accuracy: {acc_mean:.2f} ± {acc_std:.2f}')
 
+                # Save eval metrics to JSON backup
+                eval_metrics = {
+                    'step': step + 1,
+                    'eval/accuracy_mean': float(acc_mean),
+                    'eval/accuracy_std': float(acc_std)
+                }
+                all_metrics.append(eval_metrics)
+
                 if writer is not None:
-                    writer.write_scalars(step + 1, {
-                        'eval/accuracy_mean': acc_mean,
-                        'eval/accuracy_std': acc_std
-                    })
-                    writer.flush()
+                    try:
+                        writer.write_scalars(step + 1, {
+                            'eval/accuracy_mean': acc_mean,
+                            'eval/accuracy_std': acc_std
+                        })
+                        writer.flush()
+                    except Exception as e:
+                        logging.warning(f'Failed to write to TensorBoard: {e}')
 
                 if acc_mean > best_acc:
                     best_acc = acc_mean
@@ -732,6 +754,35 @@ class MTTMethod(BaseDistillationMethod):
                 image_saver(proto_state=state, step=step + 1)
 
         logging.info(f'MTT training finished! Best accuracy: {best_acc:.2f}')
+
+        # Save metrics to JSON file as backup
+        import json
+        metrics_file = os.path.join(workdir, 'metrics.json')
+        try:
+            with open(metrics_file, 'w') as f:
+                json.dump(all_metrics, f, indent=2)
+            logging.info(f'Saved metrics to {metrics_file}')
+        except Exception as e:
+            logging.warning(f'Failed to save metrics to JSON: {e}')
+
+        # Print final summary
+        print('\n' + '='*70)
+        print('TRAINING SUMMARY')
+        print('='*70)
+        print(f'Method: MTT')
+        print(f'Total steps: {num_train_steps}')
+        print(f'Best accuracy: {best_acc:.2f}%')
+        print(f'Workdir: {workdir}')
+        print(f'Metrics saved to: {metrics_file}')
+
+        # Print last few evaluation results
+        eval_metrics_list = [m for m in all_metrics if 'eval/accuracy_mean' in m]
+        if eval_metrics_list:
+            print(f'\nEvaluation history:')
+            for m in eval_metrics_list[-3:]:  # Last 3 evaluations
+                print(f"  Step {m['step']}: {m['eval/accuracy_mean']:.2f}% ± {m['eval/accuracy_std']:.2f}%")
+        print('='*70 + '\n')
+
         return state
 
     def get_synthetic_data(
