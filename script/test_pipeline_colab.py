@@ -143,7 +143,7 @@ This will run 3 minimal experiments (~5-10 minutes total).
         'method': 'mtt',
         'dataset': 'mnist',
         'ipc': 1,
-        'description': '[1/3] MNIST | IPC=1 | MTT'
+        'description': '[1/15] MNIST | IPC=1 | MTT'
     }
     experiments.append(exp1)
 
@@ -151,23 +151,82 @@ This will run 3 minimal experiments (~5-10 minutes total).
     exp2 = {
         'method': 'dm',
         'dataset': 'mnist',
-        'ipc': 10,
-        'description': '[2/3] MNIST | IPC=10 | DM'
+        'ipc': 1,
+        'description': '[2/15] MNIST | IPC=10 | DM'
     }
     experiments.append(exp2)
 
     # Test 3: CIFAR-10, IPC=1, FRePo
     exp3 = {
         'method': 'frepo',
-        'dataset': 'cifar10',
+        'dataset': 'mnist',
         'ipc': 1,
-        'description': '[3/3] CIFAR-10 | IPC=1 | FRePo'
+        'description': '[3/15] MNIST | IPC=1 | FRePo'
     }
     experiments.append(exp3)
 
+    exp4 = {
+        'method': 'kip',
+        'dataset': 'mnist',
+        'ipc': 1,
+        'description': '[4/15] MNIST | IPC=1 | FRePo'
+    }
+    experiments.append(exp4)
+
+    exp5 = {
+        'method': 'dc',
+        'dataset': 'mnist',
+        'ipc': 1,
+        'description': '[5/15] MNIST | IPC=1 | FRePo'
+    }
+    experiments.append(exp5)
+
+    # Test 1: MNIST, IPC=1, MTT
+    exp6 = {
+        'method': 'mtt',
+        'dataset': 'cifar10',
+        'ipc': 1,
+        'description': '[6/15] cifar10 | IPC=1 | MTT'
+    }
+    experiments.append(exp6)
+
+    # Test 2: MNIST, IPC=10, DM
+    exp7 = {
+        'method': 'dm',
+        'dataset': 'cifar10',
+        'ipc': 1,
+        'description': '[7/15] cifar10 | IPC=10 | DM'
+    }
+    experiments.append(exp7)
+
+    # Test 3: CIFAR-10, IPC=1, FRePo
+    exp8 = {
+        'method': 'frepo',
+        'dataset': 'cifar10',
+        'ipc': 1,
+        'description': '[8/15] cifar10 | IPC=1 | FRePo'
+    }
+    experiments.append(exp8)
+
+    exp9 = {
+        'method': 'kip',
+        'dataset': 'cifar10',
+        'ipc': 1,
+        'description': '[9/15] cifar10 | IPC=1 | FRePo'
+    }
+    experiments.append(exp9)
+
+    exp10 = {
+        'method': 'dc',
+        'dataset': 'cifar10',
+        'ipc': 1,
+        'description': '[10/15] cifar10 | IPC=1 | FRePo'
+    }
+    experiments.append(exp10)
+
     # Run experiments
     print("\n" + "="*70)
-    print("Step 1/4: Running 3 test experiments")
+    print("Step 1/4: Running test experiments")
     print("="*70)
 
     for exp in experiments:
@@ -186,7 +245,7 @@ This will run 3 minimal experiments (~5-10 minutes total).
             '--random_seed=0',
             f'--train_log={base_log}',
             f'--train_img={base_img}',
-            '--save_image=False'
+            '--save_image=True'
         ]
 
         exit_code = run_command(cmd, exp['description'])
