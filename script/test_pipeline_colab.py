@@ -139,7 +139,9 @@ def main(
     else:
         datasets_list = [d.strip() for d in datasets.split(',')]
 
-    if isinstance(ipcs, (list, tuple)):
+    if isinstance(ipcs, int):
+        ipcs_list = [ipcs]
+    elif isinstance(ipcs, (list, tuple)):
         ipcs_list = [int(i) if isinstance(i, int) else int(i.strip()) for i in ipcs]
     else:
         ipcs_list = [int(i.strip()) for i in ipcs.split(',')]
