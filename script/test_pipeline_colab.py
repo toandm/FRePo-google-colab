@@ -74,7 +74,7 @@ def is_experiment_completed_with_dir(base_log: str, dataset: str, ipc: int,
     # Format: base_log/dataset/step{num_train_steps}K_num{ipc}/{method}_width{width}_depth{depth}/seed{seed}
     output_dir = f"{base_log}/{dataset}/step{num_train_steps//1000}K_num{ipc}/{method}_width{width}_depth{depth}/seed{seed}"
     metrics_file = os.path.join(output_dir, 'metrics.json')
-
+    print(f"============================= check {metrics_file}")
     # Check if metrics.json exists
     is_completed = os.path.exists(metrics_file)
 
