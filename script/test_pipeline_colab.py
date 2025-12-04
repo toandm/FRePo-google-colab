@@ -109,10 +109,8 @@ def main(
 
     # Training parameters
     num_steps: int = 50,
-    width: int = 32,
-    depth: int = 2,
-    num_eval: int = 2,
-    eval_updates: int = 300,
+    width: int = 128,
+    depth: int = 3,
     base_log: str = 'train_log',
     base_img: str = 'train_img'
 ):
@@ -124,10 +122,8 @@ def main(
         datasets: Comma-separated list of datasets (default: 'mnist,fashion_mnist,cifar10')
         ipcs: Comma-separated list of IPC values (default: '1,5')
         num_steps: Number of distillation steps (default: 50)
-        width: Model width (default: 32)
-        depth: Model depth (default: 2)
-        num_eval: Number of evaluation models (default: 2)
-        eval_updates: Number of evaluation updates (default: 300)
+        width: Model width (default: 128)
+        depth: Model depth (default: 3)
         base_log: Base directory for logs (default: 'train_log')
         base_img: Base directory for images (default: 'train_img')
     """
@@ -178,8 +174,6 @@ Training Config:
   - num_steps: {num_steps}
   - width: {width}
   - depth: {depth}
-  - num_eval: {num_eval}
-  - eval_updates: {eval_updates}
 
 Estimated time: ~{total_exp * 2} minutes.
 """)
@@ -198,17 +192,13 @@ Estimated time: ~{total_exp * 2} minutes.
             f'--method={exp["method"]}',
             f'--dataset_name={exp["dataset"]}',
             f'--num_prototypes_per_class={exp["ipc"]}',
-            f'--num_distill_steps={num_steps}',
-            f'--steps_per_eval={num_steps//2}',
-            '--steps_per_log=10',
+            f'--num_train_steps={num_steps}',
             f'--width={width}',
             f'--depth={depth}',
-            f'--num_eval={num_eval}',
-            f'--num_online_eval_updates={eval_updates}',
             '--random_seed=0',
             f'--train_log={base_log}',
             f'--train_img={base_img}',
-            '--save_image=False'
+            '--save_image=True'
         ]
 
         exit_code = run_command(cmd, exp['description'])
