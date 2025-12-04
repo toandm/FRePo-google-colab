@@ -132,9 +132,21 @@ def main(
         base_img: Base directory for images (default: 'train_img')
     """
     # Parse grid parameters
-    methods_list = [m.strip() for m in methods.split(',')]
-    datasets_list = [d.strip() for d in datasets.split(',')]
-    ipcs_list = [int(i.strip()) for i in ipcs.split(',')]
+    # Handle both string and tuple/list (Fire parses comma-separated values as tuples)
+    if isinstance(methods, (list, tuple)):
+        methods_list = [m.strip() for m in methods]
+    else:
+        methods_list = [m.strip() for m in methods.split(',')]
+
+    if isinstance(datasets, (list, tuple)):
+        datasets_list = [d.strip() for d in datasets]
+    else:
+        datasets_list = [d.strip() for d in datasets.split(',')]
+
+    if isinstance(ipcs, (list, tuple)):
+        ipcs_list = [int(i) if isinstance(i, int) else int(i.strip()) for i in ipcs]
+    else:
+        ipcs_list = [int(i.strip()) for i in ipcs.split(',')]
 
     # Generate grid
     experiments = []
