@@ -51,6 +51,36 @@ def run_command(cmd: list, description: str) -> int:
         return e.returncode
 
 
+def is_experiment_completed_with_dir(base_log: str, dataset: str, ipc: int,
+                                    method: str, num_train_steps: int,
+                                    width: int, depth: int, seed: int = 0) -> tuple:
+    """
+    Check if experiment already has results and return directory path.
+
+    Args:
+        base_log: Base log directory
+        dataset: Dataset name
+        ipc: Images per class
+        method: Distillation method
+        num_train_steps: Number of training steps
+        width: Model width
+        depth: Model depth
+        seed: Random seed (default: 0)
+
+    Returns:
+        Tuple of (is_completed: bool, output_dir: str)
+    """
+    # Construct output directory path
+    # Format: base_log/dataset/step{num_train_steps}K_num{ipc}/{method}_width{width}_depth{depth}/seed{seed}
+    output_dir = f"{base_log}/{dataset}/step{num_train_steps//1000}K_num{ipc}/{method}_width{width}_depth{depth}/seed{seed}"
+    metrics_file = os.path.join(output_dir, 'metrics.json')
+
+    # Check if metrics.json exists
+    is_completed = os.path.exists(metrics_file)
+
+    return is_completed, output_dir
+
+
 def verify_json(seed_dir: str) -> Optional[Dict]:
     """
     Verify JSON metrics file exists and has data.
@@ -112,7 +142,10 @@ def main(
     width: int = 128,
     depth: int = 3,
     base_log: str = 'train_log',
-    base_img: str = 'train_img'
+    base_img: str = 'train_img',
+
+    # Execution control
+    force: bool = False
 ):
     """
     Run grid-based pipeline test.
@@ -126,6 +159,7 @@ def main(
         depth: Model depth (default: 3)
         base_log: Base directory for logs (default: 'train_log')
         base_img: Base directory for images (default: 'train_img')
+        force: If True, rerun all experiments even if results exist (default: False)
     """
     # Parse grid parameters
     # Handle both string and tuple/list (Fire parses comma-separated values as tuples)
@@ -182,13 +216,31 @@ Estimated time: ~{total_exp * 2} minutes.
 
     total_start = time.time()
     failed_experiments = []
+    skipped_experiments = []
 
     # Run experiments
     print("\n" + "="*70)
     print(f"Step 1/4: Running {len(experiments)} test experiments")
+    if not force:
+        print("(Skipping completed experiments. Use --force=True to rerun all)")
     print("="*70)
 
     for exp in experiments:
+        # Check if experiment already completed (unless force=True)
+        if not force:
+            is_completed, output_dir = is_experiment_completed_with_dir(
+                base_log, exp['dataset'], exp['ipc'], exp['method'],
+                num_train_steps, width, depth
+            )
+
+            if is_completed:
+                print(f"\n{exp['description']}")
+                print(f"  ⏭️  Skipping (already completed)")
+                print(f"     To rerun, delete: {output_dir}")
+                skipped_experiments.append(exp['description'])
+                continue
+
+        # Run experiment
         cmd = [
             'python3', '-m', 'script.distill_unified',
             f'--method={exp["method"]}',
@@ -257,6 +309,17 @@ Estimated time: ~{total_exp * 2} minutes.
 
     print(f"\n✓ Pipeline test completed in {total_elapsed:.1f}s ({total_elapsed/60:.1f} minutes)")
 
+    # Report skipped experiments
+    if skipped_experiments:
+        print(f"\n⏭️  {len(skipped_experiments)} experiments skipped (already completed):")
+        # Show first 5 skipped experiments
+        for exp in skipped_experiments[:5]:
+            print(f"  - {exp}")
+        if len(skipped_experiments) > 5:
+            print(f"  ... and {len(skipped_experiments) - 5} more")
+        print(f"\n  To rerun skipped experiments, use: --force=True")
+
+    # Report failed experiments
     if failed_experiments:
         print(f"\n⚠️  {len(failed_experiments)} experiments failed:")
         for exp in failed_experiments:
