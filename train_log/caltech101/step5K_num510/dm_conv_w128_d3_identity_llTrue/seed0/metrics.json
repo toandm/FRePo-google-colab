@@ -1,0 +1,47 @@
+[
+  {
+    "train/dm_loss": 0.0,
+    "step": 500
+  },
+  {
+    "train/dm_loss": 0.0,
+    "step": 1000
+  },
+  {
+    "train/dm_loss": 0.0,
+    "step": 1500
+  },
+  {
+    "train/dm_loss": 0.0,
+    "step": 2000
+  },
+  {
+    "train/dm_loss": 0.0,
+    "step": 2500
+  },
+  {
+    "train/dm_loss": 0.0,
+    "step": 3000
+  },
+  {
+    "train/dm_loss": 0.0,
+    "step": 3500
+  },
+  {
+    "train/dm_loss": 0.0,
+    "step": 4000
+  },
+  {
+    "train/dm_loss": 0.0,
+    "step": 4500
+  },
+  {
+    "train/dm_loss": 0.0,
+    "step": 5000
+  },
+  {
+    "step": 5000,
+    "eval/accuracy_mean": 45.41701126098633,
+    "eval/accuracy_std": 1.0119410753250122
+  }
+]
