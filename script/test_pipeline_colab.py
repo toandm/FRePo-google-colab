@@ -12,7 +12,7 @@ Usage in Colab:
     !python -m script.test_pipeline_colab
 
 Or with custom grid:
-    !python -m script.test_pipeline_colab --methods=mtt,dm --datasets=mnist --ipcs=1 --num_steps=100
+    !python -m script.test_pipeline_colab --methods=mtt,dm --datasets=mnist --ipcs=1 --num_train_steps=100
 """
 
 import os
@@ -108,7 +108,7 @@ def main(
     ipcs: str = '1,5',
 
     # Training parameters
-    num_steps: int = 50,
+    num_train_steps: int = 50,
     width: int = 128,
     depth: int = 3,
     base_log: str = 'train_log',
@@ -121,7 +121,7 @@ def main(
         methods: Comma-separated list of methods (default: 'mtt,dm,dc,kip,frepo')
         datasets: Comma-separated list of datasets (default: 'mnist,fashion_mnist,cifar10')
         ipcs: Comma-separated list of IPC values (default: '1,5')
-        num_steps: Number of distillation steps (default: 50)
+        num_train_steps: Number of distillation steps (default: 50)
         width: Model width (default: 128)
         depth: Model depth (default: 3)
         base_log: Base directory for logs (default: 'train_log')
@@ -173,7 +173,7 @@ Grid Configuration:
   - Total experiments: {total_exp}
 
 Training Config:
-  - num_steps: {num_steps}
+  - num_train_steps: {num_train_steps}
   - width: {width}
   - depth: {depth}
 
@@ -194,7 +194,7 @@ Estimated time: ~{total_exp * 2} minutes.
             f'--method={exp["method"]}',
             f'--dataset_name={exp["dataset"]}',
             f'--num_prototypes_per_class={exp["ipc"]}',
-            f'--num_train_steps={num_steps}',
+            f'--num_train_steps={num_train_steps}',
             f'--width={width}',
             f'--depth={depth}',
             '--random_seed=0',
