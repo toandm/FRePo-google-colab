@@ -60,34 +60,40 @@ def parse_experiment_path(path: str) -> Optional[Dict[str, any]]:
     return None
 
 
-def extract_final_accuracy_from_tensorboard(logdir: str) -> Optional[float]:
+def extract_final_accuracy_from_json(logdir: str) -> Optional[float]:
     """
-    Extract final test accuracy from TensorBoard events.
+    Extract final test accuracy from JSON metrics file.
 
     Args:
-        logdir: Directory containing TensorBoard event files
+        logdir: Directory containing metrics.json
 
     Returns:
         Final accuracy value or None if not found
     """
-    if not HAS_TENSORBOARD:
+    import json
+
+    metrics_file = os.path.join(logdir, 'metrics.json')
+
+    if not os.path.exists(metrics_file):
         return None
 
     try:
-        ea = event_accumulator.EventAccumulator(logdir)
-        ea.Reload()
+        with open(metrics_file, 'r') as f:
+            metrics = json.load(f)
 
-        # Look for evaluation accuracy
-        if 'scalars' in ea.Tags() and 'eval/accuracy_mean' in ea.Tags()['scalars']:
-            events = ea.Scalars('eval/accuracy_mean')
-            if events:
-                # Return the last (final) accuracy value
-                return events[-1].value
+        # Find eval metrics
+        eval_metrics = [m for m in metrics if 'eval/accuracy_mean' in m or 'eval/step_acc_mean' in m]
 
-        return None
+        if not eval_metrics:
+            return None
 
+        # Get final accuracy
+        final_metric = eval_metrics[-1]
+        acc_key = 'eval/accuracy_mean' if 'eval/accuracy_mean' in final_metric else 'eval/step_acc_mean'
+
+        return final_metric[acc_key]
     except Exception as e:
-        print(f"Warning: Failed to parse TensorBoard events in {logdir}: {e}")
+        print(f"Warning: Failed to parse JSON metrics in {logdir}: {e}")
         return None
 
 
@@ -121,7 +127,7 @@ def scan_experiments(base_dir: str, datasets: Optional[List[str]] = None) -> Dic
             continue
 
         # Extract accuracy from TensorBoard events
-        accuracy = extract_final_accuracy_from_tensorboard(seed_dir)
+        accuracy = extract_final_accuracy_from_json(seed_dir)
         if accuracy is None:
             print(f"Warning: No accuracy found for {seed_dir}")
             continue
