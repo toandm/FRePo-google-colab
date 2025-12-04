@@ -1,8 +1,8 @@
 """
-Ultra-quick pipeline test for Google Colab (non-interactive).
+Grid-based pipeline test for Google Colab (non-interactive).
 
-This script runs minimal experiments to verify:
-1. TensorBoard logging fix works correctly
+This script runs grid experiments to verify:
+1. JSON metrics logging works correctly
 2. Experiment pipeline is functional
 3. Table generation produces correct output
 
@@ -11,14 +11,15 @@ Designed for Google Colab - no interactive prompts needed.
 Usage in Colab:
     !python -m script.test_pipeline_colab
 
-Or with custom config:
-    !python -m script.test_pipeline_colab --num_steps=100 --width=64
+Or with custom grid:
+    !python -m script.test_pipeline_colab --methods=mtt,dm --datasets=mnist --ipcs=1 --num_steps=100
 """
 
 import os
 import subprocess
 import time
-from typing import Optional
+import json
+from typing import Optional, Dict
 import fire
 
 
@@ -50,56 +51,63 @@ def run_command(cmd: list, description: str) -> int:
         return e.returncode
 
 
-def verify_tensorboard(seed_dir: str) -> bool:
+def verify_json(seed_dir: str) -> Optional[Dict]:
     """
-    Verify TensorBoard has scalar data.
+    Verify JSON metrics file exists and has data.
 
     Args:
-        seed_dir: Directory containing TensorBoard events
+        seed_dir: Directory containing metrics.json
 
     Returns:
-        True if scalar data exists
+        Dict with accuracy info or None if not found
     """
+    metrics_file = os.path.join(seed_dir, 'metrics.json')
+
+    if not os.path.exists(metrics_file):
+        print(f"  ✗ {seed_dir}")
+        print(f"    No metrics.json found!")
+        return None
+
     try:
-        from tensorboard.backend.event_processing import event_accumulator
-        import glob
+        with open(metrics_file, 'r') as f:
+            metrics = json.load(f)
 
-        # Find event files
-        event_files = glob.glob(os.path.join(seed_dir, 'events.out.tfevents.*'))
-        if not event_files:
-            print(f"  ✗ No event files in {seed_dir}")
-            return False
+        # Find eval metrics
+        eval_metrics = [m for m in metrics if 'eval/accuracy_mean' in m or 'eval/step_acc_mean' in m]
 
-        ea = event_accumulator.EventAccumulator(seed_dir)
-        ea.Reload()
-
-        scalar_tags = ea.Tags().get('scalars', [])
-
-        if scalar_tags:
-            print(f"  ✓ {seed_dir}")
-            print(f"    Found {len(scalar_tags)} scalar tags")
-
-            # Check for eval accuracy
-            if 'eval/accuracy_mean' in scalar_tags:
-                events = ea.Scalars('eval/accuracy_mean')
-                if events:
-                    final_acc = events[-1].value
-                    print(f"    Final accuracy: {final_acc:.2f}%")
-                    return True
-        else:
+        if not eval_metrics:
             print(f"  ✗ {seed_dir}")
-            print(f"    No scalar tags found!")
-            return False
+            print(f"    No eval metrics in JSON!")
+            return None
+
+        # Get final accuracy
+        final_metric = eval_metrics[-1]
+        acc_key = 'eval/accuracy_mean' if 'eval/accuracy_mean' in final_metric else 'eval/step_acc_mean'
+        final_acc = final_metric[acc_key]
+
+        print(f"  ✓ {seed_dir}")
+        print(f"    Found {len(metrics)} metric entries")
+        print(f"    Final accuracy: {final_acc:.2f}%")
+
+        return {
+            'accuracy': final_acc,
+            'num_metrics': len(metrics),
+            'num_evals': len(eval_metrics)
+        }
 
     except Exception as e:
         print(f"  ✗ {seed_dir}")
-        print(f"    Error: {e}")
-        return False
-
-    return False
+        print(f"    Error reading JSON: {e}")
+        return None
 
 
 def main(
+    # Grid parameters
+    methods: str = 'mtt,dm,dc,kip,frepo',
+    datasets: str = 'mnist,fashion_mnist,cifar10',
+    ipcs: str = '1,5',
+
+    # Training parameters
     num_steps: int = 50,
     width: int = 32,
     depth: int = 2,
@@ -109,9 +117,12 @@ def main(
     base_img: str = 'train_img'
 ):
     """
-    Run ultra-quick pipeline test.
+    Run grid-based pipeline test.
 
     Args:
+        methods: Comma-separated list of methods (default: 'mtt,dm,dc,kip,frepo')
+        datasets: Comma-separated list of datasets (default: 'mnist,fashion_mnist,cifar10')
+        ipcs: Comma-separated list of IPC values (default: '1,5')
         num_steps: Number of distillation steps (default: 50)
         width: Model width (default: 32)
         depth: Model depth (default: 2)
@@ -120,113 +131,53 @@ def main(
         base_log: Base directory for logs (default: 'train_log')
         base_img: Base directory for images (default: 'train_img')
     """
+    # Parse grid parameters
+    methods_list = [m.strip() for m in methods.split(',')]
+    datasets_list = [d.strip() for d in datasets.split(',')]
+    ipcs_list = [int(i.strip()) for i in ipcs.split(',')]
+
+    # Generate grid
+    experiments = []
+    exp_id = 1
+    total_exp = len(methods_list) * len(datasets_list) * len(ipcs_list)
+
+    for dataset in datasets_list:
+        for ipc in ipcs_list:
+            for method in methods_list:
+                experiments.append({
+                    'method': method,
+                    'dataset': dataset,
+                    'ipc': ipc,
+                    'description': f'[{exp_id}/{total_exp}] {dataset.upper()} | IPC={ipc} | {method.upper()}'
+                })
+                exp_id += 1
+
     print("="*70)
-    print("ULTRA-QUICK PIPELINE TEST (Google Colab)")
+    print("GRID-BASED PIPELINE TEST (Google Colab)")
     print("="*70)
     print(f"""
-Config:
+Grid Configuration:
+  - Methods: {methods_list}
+  - Datasets: {datasets_list}
+  - IPCs: {ipcs_list}
+  - Total experiments: {total_exp}
+
+Training Config:
   - num_steps: {num_steps}
   - width: {width}
   - depth: {depth}
   - num_eval: {num_eval}
   - eval_updates: {eval_updates}
 
-This will run 3 minimal experiments (~5-10 minutes total).
+Estimated time: ~{total_exp * 2} minutes.
 """)
 
     total_start = time.time()
-    experiments = []
     failed_experiments = []
-
-    # Test 1: MNIST, IPC=1, MTT
-    exp1 = {
-        'method': 'mtt',
-        'dataset': 'mnist',
-        'ipc': 1,
-        'description': '[1/15] MNIST | IPC=1 | MTT'
-    }
-    experiments.append(exp1)
-
-    # Test 2: MNIST, IPC=10, DM
-    exp2 = {
-        'method': 'dm',
-        'dataset': 'mnist',
-        'ipc': 1,
-        'description': '[2/15] MNIST | IPC=10 | DM'
-    }
-    experiments.append(exp2)
-
-    # Test 3: CIFAR-10, IPC=1, FRePo
-    exp3 = {
-        'method': 'frepo',
-        'dataset': 'mnist',
-        'ipc': 1,
-        'description': '[3/15] MNIST | IPC=1 | FRePo'
-    }
-    experiments.append(exp3)
-
-    exp4 = {
-        'method': 'kip',
-        'dataset': 'mnist',
-        'ipc': 1,
-        'description': '[4/15] MNIST | IPC=1 | FRePo'
-    }
-    experiments.append(exp4)
-
-    exp5 = {
-        'method': 'dc',
-        'dataset': 'mnist',
-        'ipc': 1,
-        'description': '[5/15] MNIST | IPC=1 | FRePo'
-    }
-    experiments.append(exp5)
-
-    # Test 1: MNIST, IPC=1, MTT
-    exp6 = {
-        'method': 'mtt',
-        'dataset': 'cifar10',
-        'ipc': 1,
-        'description': '[6/15] cifar10 | IPC=1 | MTT'
-    }
-    experiments.append(exp6)
-
-    # Test 2: MNIST, IPC=10, DM
-    exp7 = {
-        'method': 'dm',
-        'dataset': 'cifar10',
-        'ipc': 1,
-        'description': '[7/15] cifar10 | IPC=10 | DM'
-    }
-    experiments.append(exp7)
-
-    # Test 3: CIFAR-10, IPC=1, FRePo
-    exp8 = {
-        'method': 'frepo',
-        'dataset': 'cifar10',
-        'ipc': 1,
-        'description': '[8/15] cifar10 | IPC=1 | FRePo'
-    }
-    experiments.append(exp8)
-
-    exp9 = {
-        'method': 'kip',
-        'dataset': 'cifar10',
-        'ipc': 1,
-        'description': '[9/15] cifar10 | IPC=1 | FRePo'
-    }
-    experiments.append(exp9)
-
-    exp10 = {
-        'method': 'dc',
-        'dataset': 'cifar10',
-        'ipc': 1,
-        'description': '[10/15] cifar10 | IPC=1 | FRePo'
-    }
-    experiments.append(exp10)
 
     # Run experiments
     print("\n" + "="*70)
-    print("Step 1/4: Running test experiments")
+    print(f"Step 1/4: Running {len(experiments)} test experiments")
     print("="*70)
 
     for exp in experiments:
@@ -245,16 +196,16 @@ This will run 3 minimal experiments (~5-10 minutes total).
             '--random_seed=0',
             f'--train_log={base_log}',
             f'--train_img={base_img}',
-            '--save_image=True'
+            '--save_image=False'
         ]
 
         exit_code = run_command(cmd, exp['description'])
         if exit_code != 0:
             failed_experiments.append(exp['description'])
 
-    # Verify TensorBoard
+    # Verify JSON metrics
     print("\n" + "="*70)
-    print("Step 2/4: Verifying TensorBoard logging")
+    print("Step 2/4: Verifying JSON metrics")
     print("="*70)
 
     import glob
@@ -262,18 +213,21 @@ This will run 3 minimal experiments (~5-10 minutes total).
     print(f"\nChecking {len(seed_dirs)} experiment directories...\n")
 
     success_count = 0
+    results = {}
     for seed_dir in seed_dirs:
-        if verify_tensorboard(seed_dir):
+        result = verify_json(seed_dir)
+        if result:
             success_count += 1
+            results[seed_dir] = result
 
-    print(f"\nResult: {success_count}/{len(seed_dirs)} experiments have valid TensorBoard data")
+    print(f"\nResult: {success_count}/{len(seed_dirs)} experiments have valid JSON data")
 
     if success_count == 0:
-        print("\n⚠️  WARNING: No experiments have TensorBoard data!")
+        print("\n⚠️  WARNING: No experiments have JSON metrics!")
     elif success_count < len(seed_dirs):
-        print("\n⚠️  WARNING: Some experiments are missing TensorBoard data!")
+        print("\n⚠️  WARNING: Some experiments are missing JSON metrics!")
     else:
-        print("\n✓ All experiments have valid TensorBoard data!")
+        print("\n✓ All experiments have valid JSON metrics!")
 
     # Generate comparison table
     print("\n" + "="*70)
@@ -313,11 +267,10 @@ This will run 3 minimal experiments (~5-10 minutes total).
     print("\nNext steps:")
     print("  1. Review comparison table:")
     print("     !cat results/tables/comparison_table.md")
-    print("  2. Run full benchmark:")
-    print("     !python -m script.quick_benchmark --auto_confirm=True")
-    print("  3. View in TensorBoard:")
-    print("     %load_ext tensorboard")
-    print(f"     %tensorboard --logdir {base_log}")
+    print("  2. Run custom grid:")
+    print(f"     !python -m script.test_pipeline_colab --methods=mtt,dm --datasets=mnist --ipcs=1")
+    print("  3. View metrics:")
+    print(f"     !cat {base_log}/mnist/step1K_num1/mtt_*/seed0/metrics.json")
 
     return 0 if len(failed_experiments) == 0 else 1
 
