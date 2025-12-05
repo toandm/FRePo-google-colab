@@ -1,3 +1,3 @@
-dataset,ipc,dm_mean,dm_std,dm_runs,mtt_mean,mtt_std,mtt_runs,dc_mean,dc_std,dc_runs,frepo_mean,frepo_std,frepo_runs
-cifar10,10,21.1920,0.0000,1,27.1800,0.0000,1,26.6860,0.0000,1,36.0980,0.0000,1
-cifar10,50,32.3940,0.0000,1,40.2640,0.0000,1,39.9380,0.0000,1,50.4320,0.0000,1
+dataset,ipc,dm_mean,dm_std,dm_runs,kip_mean,kip_std,kip_runs,mtt_mean,mtt_std,mtt_runs,dc_mean,dc_std,dc_runs,frepo_mean,frepo_std,frepo_runs
+cifar10,1,21.1920,0.0000,1,19.8380,0.0000,1,27.1800,0.0000,1,26.6860,0.0000,1,36.0980,0.0000,1
+cifar10,5,32.3940,0.0000,1,,,0,40.2640,0.0000,1,39.9380,0.0000,1,50.4320,0.0000,1
