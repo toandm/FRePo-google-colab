@@ -87,7 +87,7 @@ def experiment_exists(base_dir: str, dataset: str, ipc: int, method: str, seed: 
         base_dir,
         dataset,
         f'step{QUICK_CONFIG["num_distill_steps"]//1000}K_num{ipc}',
-        f'{method}_conv_w{QUICK_CONFIG["width"]}_d{QUICK_CONFIG["depth"]}_identity_llTrue',
+        f'{method}_width{QUICK_CONFIG["width"]}_depth{QUICK_CONFIG["depth"]}',
         f'seed{seed}'
     )
 
