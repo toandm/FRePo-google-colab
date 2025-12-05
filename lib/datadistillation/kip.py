@@ -92,6 +92,8 @@ class KIPMethod(BaseDistillationMethod):
         kernel_alignment_weight: float = 1.0,
         label_alignment_weight: float = 0.1,
         max_ntk_samples: int = 32,
+        jacobian_chunk_size: int = 4,
+        kernel_chunk_size: int = 8,
         **kwargs
     ):
         """
@@ -107,6 +109,12 @@ class KIPMethod(BaseDistillationMethod):
                 NTK has O(N²) complexity, so limiting samples is crucial for speed.
                 32 is a good balance between speed and gradient quality.
                 For ablation study, try: 16 (faster), 48 (balanced), 64 (slower but potentially better).
+            jacobian_chunk_size: Chunk size for jacobian computation (default: 4)
+                Smaller values use less memory but may be slower.
+                Recommended: 2-4 for large models, 8 for small models.
+            kernel_chunk_size: Chunk size for kernel matrix computation (default: 8)
+                Smaller values use less memory but may be slower.
+                Recommended: 4-8 for large models, 16 for small models.
             **kwargs: Additional configuration
         """
         super().__init__(**kwargs)
@@ -128,9 +136,14 @@ class KIPMethod(BaseDistillationMethod):
         self.kernel_alignment_weight = kernel_alignment_weight
         self.label_alignment_weight = label_alignment_weight
         self.max_ntk_samples = max_ntk_samples
+        self.jacobian_chunk_size = jacobian_chunk_size
+        self.kernel_chunk_size = kernel_chunk_size
 
         # Log configuration
-        logging.info(f"KIP initialized: use_ntk={self.use_ntk}, max_ntk_samples={self.max_ntk_samples}")
+        logging.info(
+            f"KIP initialized: use_ntk={self.use_ntk}, max_ntk_samples={self.max_ntk_samples}, "
+            f"jacobian_chunk_size={self.jacobian_chunk_size}, kernel_chunk_size={self.kernel_chunk_size}"
+        )
 
     def initialize_synthetic_data(
         self,
@@ -250,10 +263,11 @@ class KIPMethod(BaseDistillationMethod):
         # Vectorize over batch dimension with chunking to avoid OOM
         def batched_jac_functional(x, chunk_size=8):
             """
-            Compute jacobian for a batch of inputs using functional vmap.
+            Compute jacobian for a batch of inputs using sequential chunk processing.
 
-            This version eliminates Python loops by using vmap with reshape,
-            making it compatible with JIT compilation and CUDNN backend.
+            FIXED: Now uses sequential Python loop instead of nested vmap to actually
+            reduce peak memory. The old nested vmap approach materialized all chunks
+            simultaneously (~21GB for 32 samples), causing OOM errors.
 
             Args:
                 x: Input array [N, ...]
@@ -263,24 +277,15 @@ class KIPMethod(BaseDistillationMethod):
                 Flattened jacobian array [N, D] where D = num_outputs * num_params
             """
             n = x.shape[0]
-            n_chunks = (n + chunk_size - 1) // chunk_size
+            jac_list = []
 
-            # Pad to make evenly divisible (ensures static shapes for JIT)
-            pad_size = n_chunks * chunk_size - n
-            if pad_size > 0:
-                # Pad with zeros - this is acceptable as we'll remove padding later
-                x_padded = jnp.concatenate([x, jnp.zeros((pad_size,) + x.shape[1:], dtype=x.dtype)], axis=0)
-            else:
-                x_padded = x
+            # Sequential loop - only one chunk in memory at a time
+            # This actually reduces peak memory unlike the old nested vmap
+            for i in range(0, n, chunk_size):
+                chunk = x[i:i+chunk_size]
 
-            # Reshape: [n_padded, ...] -> [n_chunks, chunk_size, ...]
-            # This creates static shape for vmap
-            x_chunked = x_padded.reshape(n_chunks, chunk_size, *x.shape[1:])
-
-            def process_chunk(chunk):
-                """Process one chunk of inputs - computes jacobians and flattens."""
-                # Compute jacobian for each sample in chunk using vmap
-                # jac_chunk shape: [chunk_size, output_dim, param_tree]
+                # Single vmap over chunk samples
+                # jac_chunk shape: [actual_chunk_size, output_dim, param_tree]
                 jac_chunk = jax.vmap(
                     lambda xi: jax.tree_util.tree_map(
                         lambda j: j[0],  # Remove extra batch dim from jacobian
@@ -288,29 +293,25 @@ class KIPMethod(BaseDistillationMethod):
                     )
                 )(chunk)
 
-                # Flatten jacobian tree to array: [chunk_size, output_dim * num_params]
+                # Flatten jacobian tree to array: [actual_chunk_size, output_dim * num_params]
                 jac_flat = jnp.concatenate([
                     j.reshape(j.shape[0], -1)
                     for j in jax.tree_util.tree_leaves(jac_chunk)
                 ], axis=-1)
-                return jac_flat
 
-            # ✅ Use vmap to process all chunks in parallel (NO Python loop!)
-            # jac_chunks shape: [n_chunks, chunk_size, D]
-            jac_chunks = jax.vmap(process_chunk)(x_chunked)
+                jac_list.append(jac_flat)
+                # JAX will free memory when jac_chunk/jac_flat go out of scope
 
-            # Flatten: [n_chunks, chunk_size, D] -> [n_padded, D]
-            jac_flat = jac_chunks.reshape(-1, jac_chunks.shape[-1])
-
-            # Remove padding to get original size: [n_padded, D] -> [n, D]
-            return jac_flat[:n]
+            # Concatenate all chunks: list of [chunk_size, D] -> [N, D]
+            return jnp.concatenate(jac_list, axis=0)
 
         # Helper function for chunked kernel computation
         def compute_kernel_matrix(jac1, jac2, chunk_size=16):
             """
-            Compute kernel K = jac1 @ jac2.T using functional vmap for chunking.
+            Compute kernel K = jac1 @ jac2.T using sequential chunk processing.
 
-            This eliminates the second Python loop in kernel computation.
+            FIXED: Now uses sequential Python loop to actually reduce peak memory.
+            The old nested vmap materialized all chunks at once.
 
             Args:
                 jac1: First jacobian array [N, D]
@@ -326,40 +327,23 @@ class KIPMethod(BaseDistillationMethod):
             if n1 * n2 <= 10000:
                 return jnp.dot(jac1, jac2.T)
 
-            # Otherwise, use chunked computation with vmap
-            n_chunks = (n1 + chunk_size - 1) // chunk_size
-            pad_size = n_chunks * chunk_size - n1
+            # Otherwise, use sequential chunked computation
+            kernel_rows = []
+            for i in range(0, n1, chunk_size):
+                chunk1 = jac1[i:i+chunk_size]  # [chunk_size, D]
+                # Compute kernel for this chunk: [chunk_size, D] @ [D, M] = [chunk_size, M]
+                row = jnp.dot(chunk1, jac2.T)
+                kernel_rows.append(row)
 
-            # Pad jac1 if needed
-            if pad_size > 0:
-                jac1_padded = jnp.concatenate([jac1, jnp.zeros((pad_size, jac1.shape[1]))], axis=0)
-            else:
-                jac1_padded = jac1
+            # Concatenate all chunks: list of [chunk_size, M] -> [N, M]
+            return jnp.concatenate(kernel_rows, axis=0)
 
-            # Reshape: [n1_padded, D] -> [n_chunks, chunk_size, D]
-            jac1_chunked = jac1_padded.reshape(n_chunks, chunk_size, -1)
+        # Compute jacobians for both inputs with configurable chunking
+        jac1 = batched_jac_functional(x1, chunk_size=self.jacobian_chunk_size)  # [N, D]
+        jac2 = batched_jac_functional(x2, chunk_size=self.jacobian_chunk_size)  # [M, D]
 
-            # ✅ Use vmap for chunked kernel computation (NO Python loop!)
-            def compute_chunk_kernel(jac1_chunk):
-                # jac1_chunk: [chunk_size, D], jac2: [M, D]
-                # result: [chunk_size, M]
-                return jnp.dot(jac1_chunk, jac2.T)
-
-            # kernel_chunks: [n_chunks, chunk_size, M]
-            kernel_chunks = jax.vmap(compute_chunk_kernel)(jac1_chunked)
-
-            # Flatten: [n_chunks, chunk_size, M] -> [n1_padded, M]
-            kernel = kernel_chunks.reshape(-1, n2)
-
-            # Remove padding: [n1_padded, M] -> [n1, M]
-            return kernel[:n1]
-
-        # Compute jacobians for both inputs with functional chunking
-        jac1 = batched_jac_functional(x1, chunk_size=8)  # [N, D]
-        jac2 = batched_jac_functional(x2, chunk_size=8)  # [M, D]
-
-        # Compute kernel using functional chunking
-        kernel = compute_kernel_matrix(jac1, jac2, chunk_size=16)  # [N, M]
+        # Compute kernel using configurable chunking
+        kernel = compute_kernel_matrix(jac1, jac2, chunk_size=self.kernel_chunk_size)  # [N, M]
 
         return kernel
 

@@ -98,7 +98,7 @@ def is_experiment_completed_with_dir(base_log: str, dataset: str, ipc: int,
 
     # Construct output directory path to match distill_unified.py (lines 238-243)
     # Format: base_log/dataset/step{num_train_steps}K_num{num_prototypes}/{method}_{arch}_width{width}_depth{depth}_{normalization}_ll{learn_label}/seed{seed}
-    output_dir = f"{base_log}/{dataset}/step{num_train_steps//1000}K_num{ipc}/{method}_{arch}_width{width}_depth{depth}_{normalization}_ll{learn_label}/seed{seed}"
+    output_dir = f"{base_log}/{dataset}/step{num_train_steps//1000}K_num{num_prototypes}/{method}_{arch}_width{width}_depth{depth}_{normalization}_ll{learn_label}/seed{seed}"
     metrics_file = os.path.join(output_dir, 'metrics.json')
     print(f"============================= check {metrics_file}")
     # Check if metrics.json exists

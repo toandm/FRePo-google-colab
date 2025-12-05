@@ -36,6 +36,13 @@ QUICK_CONFIG = {
     'num_online_eval_updates': 500,  # Fewer training steps per eval (normally 1000-5000)
 }
 
+# KIP requires extra memory optimizations
+KIP_MEMORY_CONFIG = {
+    'kip_jacobian_chunk_size': 2,    # Very conservative (default: 4)
+    'kip_kernel_chunk_size': 4,      # Very conservative (default: 8)
+    'kip_max_ntk_samples': 16,       # Reduced from default 32
+}
+
 
 def get_experiment_configs():
     """
@@ -108,7 +115,8 @@ def run_experiment(
     seed: int = 0,
     base_log_dir: str = 'train_log',
     base_img_dir: str = 'train_img',
-    dry_run: bool = False
+    dry_run: bool = False,
+    enable_xla_fallback: bool = False
 ) -> int:
     """
     Run a single experiment.
@@ -144,6 +152,11 @@ def run_experiment(
         '--save_image=False',  # Don't save images to save time/space
     ]
 
+    # Add KIP-specific memory parameters
+    if method.lower() == 'kip':
+        for key, value in KIP_MEMORY_CONFIG.items():
+            cmd.append(f'--{key}={value}')
+
     print(f"\n{'='*70}")
     print(f"Running: {dataset.upper()} | IPC={ipc} | Method={method.upper()} | Seed={seed}")
     print(f"{'='*70}")
@@ -153,10 +166,20 @@ def run_experiment(
         print("[DRY RUN - Not executing]")
         return 0
 
+    # Prepare environment with XLA flags if needed (for KIP memory optimization)
+    env = os.environ.copy()
+    if enable_xla_fallback:
+        xla_flags = env.get('XLA_FLAGS', '')
+        if xla_flags:
+            xla_flags += ' '
+        xla_flags += '--xla_gpu_strict_conv_algorithm_picker=false'
+        env['XLA_FLAGS'] = xla_flags
+        print(f"  XLA_FLAGS: {xla_flags}")
+
     # Run experiment
     start_time = time.time()
     try:
-        result = subprocess.run(cmd, check=True)
+        result = subprocess.run(cmd, check=True, env=env)
         elapsed = time.time() - start_time
         print(f"\n✓ Completed in {elapsed:.1f}s")
         return result.returncode
@@ -179,7 +202,8 @@ def main(
     skip_existing: bool = False,
     dry_run: bool = False,
     stop_on_error: bool = False,
-    auto_confirm: bool = False
+    auto_confirm: bool = False,
+    enable_xla_fallback: bool = True  # Enable by default for KIP
 ):
     """
     Run quick benchmark experiments for all combinations.
@@ -197,6 +221,7 @@ def main(
         dry_run: Print commands without executing (default: False)
         stop_on_error: Stop if any experiment fails (default: False)
         auto_confirm: Skip confirmation prompt (useful for Colab) (default: False)
+        enable_xla_fallback: Enable XLA fallback algorithm for KIP (default: True)
     """
     print("="*70)
     print("QUICK BENCHMARK - Minimal Config for Pipeline Testing")
@@ -269,7 +294,8 @@ def main(
                 seed=seed,
                 base_log_dir=base_log_dir,
                 base_img_dir=base_img_dir,
-                dry_run=dry_run
+                dry_run=dry_run,
+                enable_xla_fallback=enable_xla_fallback and (method.lower() == 'kip')  # Only for KIP
             )
 
             if exit_code == 0:
