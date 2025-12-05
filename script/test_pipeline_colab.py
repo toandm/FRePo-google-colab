@@ -23,6 +23,20 @@ from typing import Optional, Dict
 import fire
 
 
+# Mapping of dataset names to their number of classes
+# Used to calculate num_prototypes = ipc * num_classes
+DATASET_NUM_CLASSES = {
+    'mnist': 10,
+    'fashion_mnist': 10,
+    'cifar10': 10,
+    'cifar100': 100,
+    'svhn_cropped': 10,
+    'caltech101': 101,
+    'deep_weeds': 9,
+    'imagenet': 1000,
+}
+
+
 def run_command(cmd: list, description: str) -> int:
     """
     Run a command and print output.
@@ -53,7 +67,11 @@ def run_command(cmd: list, description: str) -> int:
 
 def is_experiment_completed_with_dir(base_log: str, dataset: str, ipc: int,
                                     method: str, num_train_steps: int,
-                                    width: int, depth: int, seed: int = 0) -> tuple:
+                                    width: int, depth: int, seed: int = 0,
+                                    arch: str = 'conv',
+                                    normalization: str = 'identity',
+                                    learn_label: bool = True,
+                                    num_classes: int = 10) -> tuple:
     """
     Check if experiment already has results and return directory path.
 
@@ -66,13 +84,21 @@ def is_experiment_completed_with_dir(base_log: str, dataset: str, ipc: int,
         width: Model width
         depth: Model depth
         seed: Random seed (default: 0)
+        arch: Model architecture (default: 'conv')
+        normalization: Normalization type (default: 'identity')
+        learn_label: Whether to learn labels (default: True)
+        num_classes: Number of classes in dataset (default: 10)
 
     Returns:
         Tuple of (is_completed: bool, output_dir: str)
     """
-    # Construct output directory path
-    # Format: base_log/dataset/step{num_train_steps}K_num{ipc}/{method}_width{width}_depth{depth}/seed{seed}
-    output_dir = f"{base_log}/{dataset}/step{num_train_steps//1000}K_num{ipc}/{method}_width{width}_depth{depth}/seed{seed}"
+    # Calculate num_prototypes same way as distill_unified.py (line 180)
+    # num_prototypes = num_prototypes_per_class * config.dataset.num_classes
+    num_prototypes = ipc * num_classes
+
+    # Construct output directory path to match distill_unified.py (lines 238-243)
+    # Format: base_log/dataset/step{num_train_steps}K_num{num_prototypes}/{method}_{arch}_width{width}_depth{depth}_{normalization}_ll{learn_label}/seed{seed}
+    output_dir = f"{base_log}/{dataset}/step{num_train_steps//1000}K_num{num_prototypes}/{method}_{arch}_width{width}_depth{depth}_{normalization}_ll{learn_label}/seed{seed}"
     metrics_file = os.path.join(output_dir, 'metrics.json')
     print(f"============================= check {metrics_file}")
     # Check if metrics.json exists
@@ -141,6 +167,9 @@ def main(
     num_train_steps: int = 50,
     width: int = 128,
     depth: int = 3,
+    arch: str = 'conv',
+    normalization: str = 'identity',
+    learn_label: bool = True,
     base_log: str = 'train_log',
     base_img: str = 'train_img',
 
@@ -157,6 +186,9 @@ def main(
         num_train_steps: Number of distillation steps (default: 50)
         width: Model width (default: 128)
         depth: Model depth (default: 3)
+        arch: Model architecture (default: 'conv')
+        normalization: Normalization type (default: 'identity')
+        learn_label: Whether to learn labels (default: True)
         base_log: Base directory for logs (default: 'train_log')
         base_img: Base directory for images (default: 'train_img')
         force: If True, rerun all experiments even if results exist (default: False)
@@ -210,6 +242,9 @@ Training Config:
   - num_train_steps: {num_train_steps}
   - width: {width}
   - depth: {depth}
+  - arch: {arch}
+  - normalization: {normalization}
+  - learn_label: {learn_label}
 
 Estimated time: ~{total_exp * 2} minutes.
 """)
@@ -228,9 +263,16 @@ Estimated time: ~{total_exp * 2} minutes.
     for exp in experiments:
         # Check if experiment already completed (unless force=True)
         if not force:
+            # Get number of classes for the dataset
+            num_classes = DATASET_NUM_CLASSES.get(exp['dataset'], 10)  # Default to 10 if unknown
+
             is_completed, output_dir = is_experiment_completed_with_dir(
                 base_log, exp['dataset'], exp['ipc'], exp['method'],
-                num_train_steps, width, depth
+                num_train_steps, width, depth,
+                arch=arch,
+                normalization=normalization,
+                learn_label=learn_label,
+                num_classes=num_classes
             )
 
             if is_completed:
@@ -249,6 +291,9 @@ Estimated time: ~{total_exp * 2} minutes.
             f'--num_train_steps={num_train_steps}',
             f'--width={width}',
             f'--depth={depth}',
+            f'--arch={arch}',
+            f'--normalization={normalization}',
+            f'--learn_label={learn_label}',
             '--random_seed=0',
             f'--train_log={base_log}',
             f'--train_img={base_img}',
