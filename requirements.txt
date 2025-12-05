@@ -7,5 +7,6 @@ tensorflow-datasets==4.9.9
 tensorflow==2.19.0
 tqdm==4.67.1
 neural-tangents
+beautifulsoup4
 jax[cuda12]==0.7.2
 -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
