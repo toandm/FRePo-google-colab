@@ -102,6 +102,10 @@ def main(
     num_train_steps=None,
     max_online_updates=100,
     num_nn_state=10,
+    # KIP-specific memory optimization parameters
+    kip_jacobian_chunk_size=4,
+    kip_kernel_chunk_size=8,
+    kip_max_ntk_samples=16,
     list_methods=False,
     **method_kwargs
 ):
@@ -126,6 +130,9 @@ def main(
         num_train_steps: Total training steps
         max_online_updates: Max updates for online models (FRePo specific)
         num_nn_state: Number of online models in pool (FRePo specific)
+        kip_jacobian_chunk_size: Chunk size for KIP jacobian computation (default: 4)
+        kip_kernel_chunk_size: Chunk size for KIP kernel matrix computation (default: 8)
+        kip_max_ntk_samples: Max real samples for KIP NTK computation (default: 16)
         list_methods: If True, list available methods and exit
         **method_kwargs: Additional method-specific keyword arguments
     """
@@ -348,8 +355,18 @@ def main(
             use_flip=use_flip,
             **method_kwargs
         )
+    elif method == 'kip':
+        # KIP with memory optimization parameters
+        method_instance = DistillationMethodRegistry.create(
+            method,
+            learn_label=learn_label,
+            max_ntk_samples=kip_max_ntk_samples,
+            jacobian_chunk_size=kip_jacobian_chunk_size,
+            kernel_chunk_size=kip_kernel_chunk_size,
+            **method_kwargs
+        )
     else:
-        # Other methods (will be implemented later)
+        # Other methods (MTT, DC, DM)
         method_instance = DistillationMethodRegistry.create(
             method,
             learn_label=learn_label,
