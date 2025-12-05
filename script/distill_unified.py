@@ -237,7 +237,7 @@ def main(
 
     exp_name = os.path.join(
         f'{dataset_name}',
-        f'step{num_train_steps // 1000}K_num{num_prototypes}',
+        f'step{num_train_steps // 1000}K_num{num_prototypes_per_class}',
         f'{method}_{config.online.arch}_width{config.online.width}_depth{config.online.depth}_{config.online.normalization}_ll{learn_label}',
         f'seed{random_seed}'
     )
