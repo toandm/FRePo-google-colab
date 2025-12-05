@@ -43,6 +43,19 @@ KIP_MEMORY_CONFIG = {
     'kip_max_ntk_samples': 16,       # Reduced from default 32
 }
 
+# Mapping of dataset names to their number of classes
+# Used to calculate num_prototypes = ipc * num_classes for correct path checking
+DATASET_NUM_CLASSES = {
+    'mnist': 10,
+    'fashion_mnist': 10,
+    'cifar10': 10,
+    'cifar100': 100,
+    'svhn_cropped': 10,
+    'caltech101': 101,
+    'deep_weeds': 9,
+    'imagenet': 1000,
+}
+
 
 def get_experiment_configs():
     """
@@ -75,7 +88,19 @@ def get_experiment_configs():
     return configs
 
 
-def experiment_exists(base_dir: str, dataset: str, ipc: int, method: str, seed: int = 0) -> bool:
+def experiment_exists(
+    base_dir: str,
+    dataset: str,
+    ipc: int,
+    method: str,
+    seed: int = 0,
+    arch: str = 'conv',
+    normalization: str = 'identity',
+    learn_label: bool = True,
+    width: int = None,
+    depth: int = None,
+    num_distill_steps: int = None
+) -> bool:
     """
     Check if experiment results already exist.
 
@@ -85,20 +110,43 @@ def experiment_exists(base_dir: str, dataset: str, ipc: int, method: str, seed: 
         ipc: Images per class
         method: Method name
         seed: Random seed
+        arch: Model architecture (default: 'conv')
+        normalization: Normalization type (default: 'identity')
+        learn_label: Whether to learn labels (default: True)
+        width: Model width (default: use QUICK_CONFIG)
+        depth: Model depth (default: use QUICK_CONFIG)
+        num_distill_steps: Number of distillation steps (default: use QUICK_CONFIG)
 
     Returns:
         True if experiment results exist
     """
-    # Check for TensorBoard events in expected location
+    # Use provided values or fall back to QUICK_CONFIG
+    width = width if width is not None else QUICK_CONFIG["width"]
+    depth = depth if depth is not None else QUICK_CONFIG["depth"]
+    steps = num_distill_steps if num_distill_steps is not None else QUICK_CONFIG["num_distill_steps"]
+
+    # Get number of classes for the dataset
+    num_classes = DATASET_NUM_CLASSES.get(dataset, 10)
+
+    # Calculate num_prototypes same way as distill_unified.py (line 180)
+    num_prototypes = ipc * num_classes
+
+    # Construct path to match distill_unified.py (lines 238-243)
+    # Format: base_dir/dataset/step{steps}K_num{num_prototypes}/{method}_{arch}_width{width}_depth{depth}_{normalization}_ll{learn_label}/seed{seed}
     exp_dir = os.path.join(
         base_dir,
         dataset,
-        f'step{QUICK_CONFIG["num_distill_steps"]//1000}K_num{ipc}',
-        f'{method}_width{QUICK_CONFIG["width"]}_depth{QUICK_CONFIG["depth"]}',
+        f'step{steps//1000}K_num{num_prototypes}',
+        f'{method}_{arch}_width{width}_depth{depth}_{normalization}_ll{learn_label}',
         f'seed{seed}'
     )
 
-    # Look for event files
+    # Check for metrics.json first (more reliable indicator of completed experiment)
+    metrics_file = os.path.join(exp_dir, 'metrics.json')
+    if os.path.exists(metrics_file):
+        return True
+
+    # Fallback: check for TensorBoard event files
     if os.path.exists(exp_dir):
         import glob
         events = glob.glob(os.path.join(exp_dir, 'events.out.tfevents.*'))
@@ -256,7 +304,19 @@ def main(
     for dataset, ipc, method in filtered_configs:
         for seed in seed_list:
             # Check if already exists
-            if skip_existing and experiment_exists(base_log_dir, dataset, ipc, method, seed):
+            if skip_existing and experiment_exists(
+                base_log_dir,
+                dataset,
+                ipc,
+                method,
+                seed,
+                arch='conv',
+                normalization='identity',
+                learn_label=True,
+                width=QUICK_CONFIG["width"],
+                depth=QUICK_CONFIG["depth"],
+                num_distill_steps=QUICK_CONFIG["num_distill_steps"]
+            ):
                 print(f"Skipping existing: {dataset} | IPC={ipc} | {method} | seed={seed}")
                 continue
             experiments.append((dataset, ipc, method, seed))
