@@ -71,16 +71,21 @@ def save_for_dataset(
     force: bool = False
 ):
     """
-    Save original images for a single dataset.
+    Save TRULY ORIGINAL images for a single dataset (no preprocessing at all).
 
     Args:
         dataset_name: Name of dataset (mnist, cifar10, etc.)
         output_dir: Base output directory (default: train_img)
         data_path: Path to dataset files (optional)
-        zca_path: Path to ZCA whitening data (optional)
+        zca_path: Path to ZCA whitening data (optional, unused but kept for API compatibility)
         samples_per_class: Number of samples per class (auto-calculated if None)
         force: Skip confirmation prompt if file exists (default: False)
     """
+    import tensorflow_datasets as tfds
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from collections import defaultdict
+    
     if dataset_name not in DATASET_CONFIGS:
         print(f"Error: Unknown dataset '{dataset_name}'")
         print(f"Available datasets: {', '.join(DATASET_CONFIGS.keys())}")
@@ -95,7 +100,7 @@ def save_for_dataset(
         samples_per_class = 100 // num_classes if num_classes <= 100 else 1
 
     print(f"\n{'='*70}")
-    print(f"Saving original images for {dataset_name.upper()}")
+    print(f"Saving ORIGINAL (raw) images for {dataset_name.upper()}")
     print(f"{'='*70}")
     print(f"Number of classes: {num_classes}")
     print(f"Samples per class: {samples_per_class}")
@@ -123,47 +128,111 @@ def save_for_dataset(
         else:
             print(f"\nOverwriting existing file (--force): {original_png}")
 
-    # Load dataset
-    print(f"\nLoading dataset...")
+    # Load RAW dataset directly from tfds (no preprocessing!)
+    print(f"\nLoading RAW dataset (no preprocessing)...")
     try:
-        # Create config for get_dataset
-        dataset_config = ml_collections.ConfigDict()
-        dataset_config.name = dataset_name
-        dataset_config.data_path = data_path if data_path else './data'
-        dataset_config.zca_path = zca_path if zca_path else './zca'
-        dataset_config.zca_reg = 0.1
-
-        # get_dataset returns: (ds_train, ds_test), preprocess_op, rev_preprocess_op, proto_scale
-        (ds_train, ds_test), preprocess_op, rev_preprocess_op, proto_scale = get_dataset(dataset_config)
-
-        # configure_dataloader expects: (ds, batch_size, x_transform, y_transform, train, shuffle, seed)
-        train_ds = configure_dataloader(
-            ds=ds_train,
-            batch_size=128,
-            x_transform=None,
-            y_transform=None,
-            train=False,
-            shuffle=False,
-            seed=0
+        data_dir = data_path if data_path else './data'
+        
+        # Determine split
+        if dataset_name in ['imagenet_resized/64x64', 'imagenette', 'imagewoof']:
+            split = 'train'
+        elif dataset_name in ['deep_weeds']:
+            split = 'train[:80%]'
+        else:
+            split = 'train'
+        
+        # Load raw dataset directly
+        ds_raw = tfds.load(
+            dataset_name, 
+            split=split, 
+            data_dir=data_dir, 
+            as_supervised=True,
+            shuffle_files=False
         )
+        
+        # Get class names
+        ds_info = tfds.builder(dataset_name, data_dir=data_dir).info
+        class_names = ds_info.features['label'].names
 
-        # Save original images
-        print(f"Saving original images...")
-        # Note: class_names is set on dataset_config by get_dataset
-        save_original_images(
-            dataset=train_ds,
-            num_classes=num_classes,
-            class_names=getattr(dataset_config, 'class_names', None),
-            rev_preprocess_op=rev_preprocess_op,
-            save_dir=dataset_dir,
-            is_grey=is_grey,
-            samples_per_class=samples_per_class
-        )
+        # Collect RAW samples from dataset
+        collected_images = defaultdict(list)
+        seen_classes = set()
+
+        print(f"Collecting raw images ({samples_per_class} per class)...")
+
+        for image, label in ds_raw:
+            # Convert to numpy
+            img = image.numpy()  # Raw uint8 [0, 255]
+            label_idx = int(label.numpy())
+            
+            seen_classes.add(label_idx)
+
+            # Collect if we need more samples for this class
+            if len(collected_images[label_idx]) < samples_per_class:
+                # Normalize to [0, 1] for visualization only (still "original" appearance)
+                img_normalized = img.astype(np.float32) / 255.0
+                collected_images[label_idx].append((img_normalized, label_idx))
+
+            # Check if we have enough samples
+            if (len(seen_classes) >= num_classes and 
+                all(len(collected_images[c]) >= samples_per_class for c in list(seen_classes)[:num_classes])):
+                break
+
+        # Get sorted list of class indices
+        found_classes = sorted(seen_classes)[:num_classes]
+        print(f"Found {len(found_classes)} classes")
+
+        # Organize images into arrays
+        all_images = []
+        all_labels = []
+        for class_idx in found_classes:
+            for img, lbl in collected_images[class_idx][:samples_per_class]:
+                all_images.append(img)
+                all_labels.append(lbl)
+
+        x_original = np.array(all_images)
+        y_original = np.array(all_labels)
+
+        print(f"Collected {len(x_original)} raw images ({len(x_original)//len(found_classes)} per class)")
+
+        # Create visualization grid
+        total_images = len(x_original)
+        row, col = total_images // 10, 10
+        fig = plt.figure(figsize=(33, 33))
+
+        for i in range(min(row * col, total_images)):
+            img = x_original[i]
+            ax = plt.subplot(row, col, i + 1)
+
+            class_idx = y_original[i]
+            if class_names is not None and class_idx < len(class_names):
+                ax.set_title('{}'.format(class_names[class_idx]), x=0.5, y=0.9,
+                            backgroundcolor='silver')
+            else:
+                ax.set_title('class_{}'.format(class_idx), x=0.5, y=0.9, backgroundcolor='silver')
+
+            if is_grey:
+                plt.imshow(np.squeeze(img), cmap='gray')
+            else:
+                plt.imshow(img)
+
+            ax.xaxis.set_ticklabels([])
+            ax.yaxis.set_ticklabels([])
+            plt.xticks([])
+            plt.yticks([])
+
+        fig.patch.set_facecolor('black')
+        fig.tight_layout()
+        plt.subplots_adjust(wspace=0.02, hspace=0.02)
+
+        # Save PNG
+        fig.savefig(original_png, bbox_inches='tight')
+        plt.close(fig)
 
         print(f"\n{'='*70}")
         print(f"SUCCESS!")
         print(f"{'='*70}")
-        print(f"Original images saved to: {original_png}")
+        print(f"Original (RAW) images saved to: {original_png}")
         print(f"{'='*70}\n")
 
         return True
