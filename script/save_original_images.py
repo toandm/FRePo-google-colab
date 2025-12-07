@@ -78,6 +78,9 @@ def save_original_images(
         if len(collected[label_idx]) < samples_per_class:
             # Resize if needed
             img_np = img.numpy()
+            # Squeeze channel dim for grayscale (H, W, 1) -> (H, W)
+            if img_np.ndim == 3 and img_np.shape[-1] == 1:
+                img_np = np.squeeze(img_np, axis=-1)
             pil_img = Image.fromarray(img_np)
             pil_img = pil_img.resize((target_size, target_size), Image.LANCZOS)
             collected[label_idx].append(np.array(pil_img))
