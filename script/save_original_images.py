@@ -133,30 +133,27 @@ def save_for_dataset(
         dataset_config.zca_path = zca_path if zca_path else None
         dataset_config.zca_reg = 0.1
 
-        dataset_info = get_dataset(dataset_config)
+        # get_dataset returns: (ds_train, ds_test), preprocess_op, rev_preprocess_op, proto_scale
+        (ds_train, ds_test), preprocess_op, rev_preprocess_op, proto_scale = get_dataset(dataset_config)
 
-        train_ds, _, test_ds = configure_dataloader(
-            dataset_name=dataset_name,
-            dataset_info=dataset_info,
+        # configure_dataloader expects: (ds, batch_size, x_transform, y_transform, train, shuffle, seed)
+        train_ds = configure_dataloader(
+            ds=ds_train,
             batch_size=128,
-            eval_batch_size=128,
-            train_transforms=None,
-            eval_transforms=None
+            x_transform=None,
+            y_transform=None,
+            train=False,
+            shuffle=False,
+            seed=0
         )
-
-        # Prepare preprocessing
-        preprocess_op = dataset_info.get('preprocess_op', None)
-        if preprocess_op:
-            rev_preprocess_op = lambda x: x  # Identity for now
-        else:
-            rev_preprocess_op = None
 
         # Save original images
         print(f"Saving original images...")
+        # Note: class_names is set on dataset_config by get_dataset
         save_original_images(
             dataset=train_ds,
             num_classes=num_classes,
-            class_names=dataset_info.get('class_names', None),
+            class_names=getattr(dataset_config, 'class_names', None),
             rev_preprocess_op=rev_preprocess_op,
             save_dir=dataset_dir,
             is_grey=is_grey,
