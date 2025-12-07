@@ -129,8 +129,8 @@ def save_for_dataset(
         # Create config for get_dataset
         dataset_config = ml_collections.ConfigDict()
         dataset_config.name = dataset_name
-        dataset_config.data_path = data_path if data_path else None
-        dataset_config.zca_path = zca_path if zca_path else None
+        dataset_config.data_path = data_path if data_path else './data'
+        dataset_config.zca_path = zca_path if zca_path else './zca'
         dataset_config.zca_reg = 0.1
 
         # get_dataset returns: (ds_train, ds_test), preprocess_op, rev_preprocess_op, proto_scale
