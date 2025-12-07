@@ -40,9 +40,13 @@ def load_proto_np(path):
 def scale_for_vis(img, rev_preprocess_op=None):
     """Scale image for visualization."""
     if rev_preprocess_op:
-        img = rev_preprocess_op(img)
+        try:
+            img = rev_preprocess_op(img)
+        except Exception:
+            # Fallback if rev_preprocess_op fails (e.g., shape mismatch)
+            img = img / (img.std() + 1e-8) * 0.2 + 0.5
     else:
-        img = img / img.std() * 0.2 + 0.5
+        img = img / (img.std() + 1e-8) * 0.2 + 0.5
     img = np.clip(img, 0, 1)
     return img
 
