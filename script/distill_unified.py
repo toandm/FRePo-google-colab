@@ -29,7 +29,7 @@ import tensorflow as tf
 
 from lib.dataset.dataloader import get_dataset, configure_dataloader
 from lib.models.utils import create_model
-from lib.datadistillation.utils import save_frepo_image, save_proto_np
+from lib.datadistillation.utils import save_frepo_image, save_proto_np, save_original_images
 from lib.datadistillation import DistillationMethodRegistry
 from lib.training.utils import create_train_state
 from lib.dataset.augmax import get_aug_by_name
@@ -265,6 +265,34 @@ def main(
         logging.info(f'Image directory: {image_dir}')
 
         is_grey = dataset_name in ['mnist', 'fashion_mnist']
+
+        # Save original images ONCE per dataset (shared by all experiments)
+        dataset_dir = os.path.join(config.train_img, dataset_name)
+        original_png = os.path.join(dataset_dir, 'original.png')
+
+        if not os.path.exists(original_png):
+            if not os.path.exists(dataset_dir):
+                os.makedirs(dataset_dir)
+
+            logging.info(f'Saving original images for {dataset_name}...')
+            try:
+                # Calculate samples per class (same logic as in save_frepo_image)
+                samples_per_class = 100 // config.dataset.num_classes if config.dataset.num_classes <= 100 else 1
+
+                save_original_images(
+                    dataset=train_ds,
+                    num_classes=config.dataset.num_classes,
+                    class_names=config.dataset.class_names,
+                    rev_preprocess_op=rev_preprocess_op,
+                    save_dir=dataset_dir,
+                    is_grey=is_grey,
+                    samples_per_class=samples_per_class
+                )
+            except Exception as e:
+                logging.warning(f'Failed to save original images: {e}')
+        else:
+            logging.info(f'Original images already exist at: {original_png}')
+
         image_saver = partial(
             save_frepo_image,
             num_classes=config.dataset.num_classes,
