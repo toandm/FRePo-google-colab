@@ -52,7 +52,7 @@ def save_original_images(dataset, num_classes=10, class_names=None, rev_preproce
     """
     Save original dataset images for comparison with distilled images.
 
-    Saves ONE file per dataset (not per experiment) at the dataset level.
+    Saves ONE PNG file per dataset (not per experiment) at the dataset level.
 
     Args:
         dataset: Training dataset (iterable of (image, label) batches)
@@ -111,11 +111,6 @@ def save_original_images(dataset, num_classes=10, class_names=None, rev_preproce
     y_original = np.array(all_labels)
 
     logging.info(f"Collected {len(x_original)} original images ({len(x_original)//num_classes} per class)")
-
-    # Save numpy array
-    np_path = os.path.join(save_dir, 'original.npz')
-    np.savez(np_path, image=x_original, label=y_original)
-    logging.info(f'Saved original images to numpy: {np_path}')
 
     # Scale for visualization
     x_vis = np.array([scale_for_vis(img, rev_preprocess_op) for img in x_original])

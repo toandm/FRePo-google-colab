@@ -24,6 +24,7 @@ sys.path.append("..")
 import os
 import fire
 from typing import Optional
+import ml_collections
 
 from absl import logging
 import tensorflow as tf
@@ -125,11 +126,14 @@ def save_for_dataset(
     # Load dataset
     print(f"\nLoading dataset...")
     try:
-        dataset_info = get_dataset(
-            dataset_name=dataset_name,
-            data_path=data_path,
-            zca_path=zca_path
-        )
+        # Create config for get_dataset
+        dataset_config = ml_collections.ConfigDict()
+        dataset_config.name = dataset_name
+        dataset_config.data_path = data_path if data_path else None
+        dataset_config.zca_path = zca_path if zca_path else None
+        dataset_config.zca_reg = 0.1
+
+        dataset_info = get_dataset(dataset_config)
 
         train_ds, _, test_ds = configure_dataloader(
             dataset_name=dataset_name,
@@ -162,9 +166,7 @@ def save_for_dataset(
         print(f"\n{'='*70}")
         print(f"SUCCESS!")
         print(f"{'='*70}")
-        print(f"Original images saved to:")
-        print(f"  PNG: {original_png}")
-        print(f"  NPZ: {os.path.join(dataset_dir, 'original.npz')}")
+        print(f"Original images saved to: {original_png}")
         print(f"{'='*70}\n")
 
         return True
