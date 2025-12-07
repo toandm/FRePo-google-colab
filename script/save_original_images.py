@@ -66,7 +66,8 @@ def save_for_dataset(
     output_dir: str = 'train_img',
     data_path: Optional[str] = None,
     zca_path: Optional[str] = None,
-    samples_per_class: Optional[int] = None
+    samples_per_class: Optional[int] = None,
+    force: bool = False
 ):
     """
     Save original images for a single dataset.
@@ -77,6 +78,7 @@ def save_for_dataset(
         data_path: Path to dataset files (optional)
         zca_path: Path to ZCA whitening data (optional)
         samples_per_class: Number of samples per class (auto-calculated if None)
+        force: Skip confirmation prompt if file exists (default: False)
     """
     if dataset_name not in DATASET_CONFIGS:
         print(f"Error: Unknown dataset '{dataset_name}'")
@@ -105,11 +107,20 @@ def save_for_dataset(
     # Check if already exists
     original_png = os.path.join(dataset_dir, 'original.png')
     if os.path.exists(original_png):
-        print(f"\nWarning: {original_png} already exists!")
-        response = input("Overwrite? (y/n): ")
-        if response.lower() != 'y':
-            print("Skipped.")
-            return False
+        if not force:
+            print(f"\nWarning: {original_png} already exists!")
+            try:
+                response = input("Overwrite? (y/n): ")
+                if response.lower() != 'y':
+                    print("Skipped.")
+                    return False
+            except EOFError:
+                # Non-interactive environment (e.g., Colab)
+                print("Non-interactive environment detected. Use --force to overwrite.")
+                print("Skipped.")
+                return False
+        else:
+            print(f"\nOverwriting existing file (--force): {original_png}")
 
     # Load dataset
     print(f"\nLoading dataset...")
@@ -172,6 +183,7 @@ def main(
     data_path: Optional[str] = None,
     zca_path: Optional[str] = None,
     samples_per_class: Optional[int] = None,
+    force: bool = False,
     list_datasets: bool = False
 ):
     """
@@ -184,6 +196,7 @@ def main(
         data_path: Path to dataset files (optional)
         zca_path: Path to ZCA whitening data (optional)
         samples_per_class: Number of samples per class (auto-calculated if None)
+        force: Skip confirmation prompt if file exists (default: False)
         list_datasets: List available datasets and exit
 
     Examples:
@@ -195,6 +208,9 @@ def main(
 
         # Custom samples per class
         python -m script.save_original_images --dataset=mnist --samples_per_class=5
+
+        # Force overwrite existing files (useful for Colab/non-interactive)
+        python -m script.save_original_images --dataset=mnist --force
     """
     # List datasets if requested
     if list_datasets:
@@ -212,7 +228,11 @@ def main(
     if dataset:
         dataset_list = [dataset]
     elif datasets:
-        dataset_list = [d.strip() for d in datasets.split(',')]
+        # Handle both string and tuple inputs (Fire sometimes converts comma-separated values to tuples)
+        if isinstance(datasets, (list, tuple)):
+            dataset_list = [d.strip() for d in datasets]
+        else:
+            dataset_list = [d.strip() for d in datasets.split(',')]
     else:
         print("Error: Must specify --dataset or --datasets")
         print("Use --list_datasets to see available datasets")
@@ -228,7 +248,8 @@ def main(
             output_dir=output_dir,
             data_path=data_path,
             zca_path=zca_path,
-            samples_per_class=samples_per_class
+            samples_per_class=samples_per_class,
+            force=force
         )
 
         if success:
