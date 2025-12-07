@@ -1,399 +1,467 @@
 """
-Quick benchmark script to run all experiments with minimal config for testing.
+Quick table generation script - scans all experiment results and generates comparison tables.
 
-This script runs all distillation methods across multiple datasets and IPC settings
-with minimal training time to verify the pipeline works correctly.
+This script scans the train_log directory for all completed experiments,
+extracts final accuracies from metrics.json files, computes statistics across seeds,
+and generates formatted comparison tables.
 
-Usage:
-    # Run all experiments with minimal config
+Key Features:
+- Scans all experiments in train_log/ automatically
+- Computes mean ± std across multiple seeds
+- Outputs both to console AND markdown file
+- Optional CSV output for further analysis
+- Flexible filtering by dataset, method, and IPC
+
+Usage Examples:
+    # Generate table for all experiments
     python -m script.quick_benchmark
 
-    # Run only specific datasets
-    python -m script.quick_benchmark --datasets=cifar10,mnist
+    # Generate table for specific datasets only
+    python -m script.quick_benchmark --datasets=mnist,cifar10
 
-    # Run only specific methods
-    python -m script.quick_benchmark --methods=frepo,mtt
+    # Generate table for specific methods
+    python -m script.quick_benchmark --methods=frepo,mtt,dc
 
-    # Skip methods that already have results
-    python -m script.quick_benchmark --skip_existing=True
+    # Filter by IPC values
+    python -m script.quick_benchmark --ipcs=1,5
+
+    # Custom output location
+    python -m script.quick_benchmark --output_file=my_results.md
+
+    # Skip CSV generation
+    python -m script.quick_benchmark --also_csv=False
+
+    # Quiet mode (less verbose)
+    python -m script.quick_benchmark --verbose=False
+
+Output:
+    1. Console: Formatted table printed to terminal
+    2. Markdown file: results/tables/comparison_table.md (default)
+    3. CSV file: results/tables/comparison_table.csv (if also_csv=True)
 """
 
 import os
-import subprocess
 import time
-from typing import List, Optional
+from typing import Dict, List, Optional
 import fire
 
-
-# Minimal config for quick testing
-QUICK_CONFIG = {
-    'num_distill_steps': 100,        # Very few training steps (normally 3000+)
-    'steps_per_eval': 50,            # Evaluate more frequently
-    'steps_per_log': 10,             # Log more frequently
-    'width': 64,                     # Smaller model (normally 128)
-    'depth': 2,                      # Shallower model (normally 3)
-    'num_eval': 3,                   # Fewer evaluation models (normally 5)
-    'num_online_eval_updates': 500,  # Fewer training steps per eval (normally 1000-5000)
-}
-
-# KIP requires extra memory optimizations
-KIP_MEMORY_CONFIG = {
-    'kip_jacobian_chunk_size': 2,    # Very conservative (default: 4)
-    'kip_kernel_chunk_size': 4,      # Very conservative (default: 8)
-    'kip_max_ntk_samples': 16,       # Reduced from default 32
-}
-
-# Mapping of dataset names to their number of classes
-# Used to calculate num_prototypes = ipc * num_classes for correct path checking
-DATASET_NUM_CLASSES = {
-    'mnist': 10,
-    'fashion_mnist': 10,
-    'cifar10': 10,
-    'cifar100': 100,
-    'svhn_cropped': 10,
-    'caltech101': 101,
-    'deep_weeds': 9,
-    'imagenet': 1000,
-}
+from script.generate_paper_table import (
+    generate_csv,
+    parse_experiment_path
+)
 
 
-def get_experiment_configs():
+def extract_final_metrics_from_json(logdir: str) -> Optional[tuple]:
     """
-    Define all experiment configurations to run.
-
-    Returns list of tuples: (dataset, ipc, method)
-    """
-    configs = []
-
-    # MNIST - Fast dataset, good for testing
-    for ipc in [1, 10, 50]:
-        for method in ['frepo', 'mtt', 'kip', 'dc', 'dm']:
-            configs.append(('mnist', ipc, method))
-
-    # Fashion-MNIST - Also fast
-    for ipc in [1, 10, 50]:
-        for method in ['frepo', 'mtt', 'kip', 'dc', 'dm']:
-            configs.append(('fashion_mnist', ipc, method))
-
-    # CIFAR-10 - More realistic
-    for ipc in [1, 10, 50]:
-        for method in ['frepo', 'mtt', 'kip', 'dc', 'dm']:
-            configs.append(('cifar10', ipc, method))
-
-    # CIFAR-100 - Harder dataset
-    for ipc in [1, 10, 50]:
-        for method in ['frepo', 'mtt', 'kip', 'dc', 'dm']:
-            configs.append(('cifar100', ipc, method))
-
-    return configs
-
-
-def experiment_exists(
-    base_dir: str,
-    dataset: str,
-    ipc: int,
-    method: str,
-    seed: int = 0,
-    arch: str = 'conv',
-    normalization: str = 'identity',
-    learn_label: bool = True,
-    width: int = None,
-    depth: int = None,
-    num_distill_steps: int = None
-) -> bool:
-    """
-    Check if experiment results already exist.
+    Extract final test accuracy and std from JSON metrics file.
 
     Args:
-        base_dir: Base directory for training logs
-        dataset: Dataset name
-        ipc: Images per class
-        method: Method name
-        seed: Random seed
-        arch: Model architecture (default: 'conv')
-        normalization: Normalization type (default: 'identity')
-        learn_label: Whether to learn labels (default: True)
-        width: Model width (default: use QUICK_CONFIG)
-        depth: Model depth (default: use QUICK_CONFIG)
-        num_distill_steps: Number of distillation steps (default: use QUICK_CONFIG)
+        logdir: Directory containing metrics.json
 
     Returns:
-        True if experiment results exist
+        Tuple of (mean, std) or None if not found
     """
-    # Use provided values or fall back to QUICK_CONFIG
-    width = width if width is not None else QUICK_CONFIG["width"]
-    depth = depth if depth is not None else QUICK_CONFIG["depth"]
-    steps = num_distill_steps if num_distill_steps is not None else QUICK_CONFIG["num_distill_steps"]
+    import json
 
-    # Get number of classes for the dataset
-    num_classes = DATASET_NUM_CLASSES.get(dataset, 10)
+    metrics_file = os.path.join(logdir, 'metrics.json')
 
-    # Calculate num_prototypes same way as distill_unified.py (line 180)
-    num_prototypes = ipc * num_classes
+    if not os.path.exists(metrics_file):
+        return None
 
-    # Construct path to match distill_unified.py (lines 238-243)
-    # Format: base_dir/dataset/step{steps}K_num{num_prototypes}/{method}_{arch}_width{width}_depth{depth}_{normalization}_ll{learn_label}/seed{seed}
-    exp_dir = os.path.join(
-        base_dir,
-        dataset,
-        f'step{steps//1000}K_num{num_prototypes}',
-        f'{method}_{arch}_width{width}_depth{depth}_{normalization}_ll{learn_label}',
-        f'seed{seed}'
+    try:
+        with open(metrics_file, 'r') as f:
+            metrics = json.load(f)
+
+        # Find eval metrics
+        eval_metrics = [m for m in metrics if 'eval/accuracy_mean' in m or 'eval/step_acc_mean' in m]
+
+        if not eval_metrics:
+            return None
+
+        # Get final metrics
+        final_metric = eval_metrics[-1]
+
+        # Determine which keys to use (different methods use different naming)
+        if 'eval/step_acc_mean' in final_metric:
+            mean = final_metric['eval/step_acc_mean']
+            std = final_metric.get('eval/step_std', 0.0)
+        elif 'eval/accuracy_mean' in final_metric:
+            mean = final_metric['eval/accuracy_mean']
+            std = final_metric.get('eval/accuracy_std', 0.0)
+        else:
+            return None
+
+        return (mean, std)
+    except Exception as e:
+        print(f"Warning: Failed to parse JSON metrics in {logdir}: {e}")
+        return None
+
+
+def scan_experiments_with_std(base_dir: str, datasets: Optional[List[str]] = None) -> Dict:
+    """
+    Scan all experiment directories and extract results with std from metrics.json.
+
+    Args:
+        base_dir: Base directory containing training logs
+        datasets: Optional list of datasets to include (default: all)
+
+    Returns:
+        Nested dict: {dataset: {ipc: {method: {'mean': X, 'std': Y}}}}
+    """
+    import glob
+    from collections import defaultdict
+
+    results = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+
+    # Find all seed directories
+    pattern = os.path.join(base_dir, '*', '*', '*', 'seed*')
+    seed_dirs = glob.glob(pattern)
+
+    print(f"Found {len(seed_dirs)} experiment directories")
+
+    for seed_dir in seed_dirs:
+        # Parse experiment metadata from path
+        exp_info = parse_experiment_path(seed_dir)
+        if not exp_info:
+            continue
+
+        # Filter by dataset if specified
+        if datasets and exp_info['dataset'] not in datasets:
+            continue
+
+        # Extract metrics (mean, std) from JSON
+        metrics = extract_final_metrics_from_json(seed_dir)
+        if metrics is None:
+            print(f"Warning: No accuracy found for {seed_dir}")
+            continue
+
+        mean, std = metrics
+
+        # Store the results
+        dataset = exp_info['dataset']
+        ipc = exp_info['ipc']
+        method = exp_info['method']
+
+        results[dataset][ipc][method]['mean'] = mean
+        results[dataset][ipc][method]['std'] = std
+        results[dataset][ipc][method]['num_runs'] = 1  # From single seed's metrics.json
+
+    return dict(results)
+
+
+def generate_markdown_table(results: Dict, methods_order: List[str]) -> str:
+    """
+    Generate Markdown table string showing ALL datasets.
+
+    Args:
+        results: Results dictionary from scan_experiments()
+        methods_order: Ordered list of methods to display
+
+    Returns:
+        Markdown table string
+    """
+    lines = []
+    lines.append("# Comparison Results")
+    lines.append("")
+
+    # Table header
+    method_names = [m.upper() for m in methods_order]
+    lines.append(f"| Dataset | IPC | {' | '.join(method_names)} |")
+    lines.append(f"|---------|-----|{'----|' * len(methods_order)}")
+
+    # Show ALL datasets found in results (sorted alphabetically)
+    datasets = sorted(results.keys())
+
+    for dataset in datasets:
+        # Sort IPCs
+        ipcs = sorted(results[dataset].keys())
+
+        for ipc_idx, ipc in enumerate(ipcs):
+            # Dataset name (only for first IPC)
+            if ipc_idx == 0:
+                dataset_name = dataset.upper().replace('_', '-')
+                row = [f"**{dataset_name}**", str(ipc)]
+            else:
+                row = ["", str(ipc)]
+
+            # Method results
+            for method in methods_order:
+                if method in results[dataset][ipc]:
+                    mean = results[dataset][ipc][method]['mean']
+                    std = results[dataset][ipc][method]['std']
+                    row.append(f"{mean:.1f}±{std:.1f}")
+                else:
+                    row.append("_")  # Use underscore for missing data
+
+            lines.append(f"| {' | '.join(row)} |")
+
+    return "\n".join(lines)
+
+
+def print_scan_summary(results: Dict, methods_order: List[str]) -> None:
+    """
+    Print a summary of scanned experiments to console.
+
+    Shows number of datasets, IPCs, methods, and total experiments.
+    Provides breakdown by dataset.
+
+    Args:
+        results: Results dictionary from scan_experiments()
+        methods_order: Ordered list of methods
+    """
+    # Count total experiments
+    total_experiments = sum(
+        sum(len(methods.keys()) for methods in ipcs.values())
+        for ipcs in results.values()
     )
 
-    # Check for metrics.json first (more reliable indicator of completed experiment)
-    metrics_file = os.path.join(exp_dir, 'metrics.json')
-    if os.path.exists(metrics_file):
-        return True
+    # Collect dataset names
+    datasets = list(results.keys())
 
-    # Fallback: check for TensorBoard event files
-    if os.path.exists(exp_dir):
-        import glob
-        events = glob.glob(os.path.join(exp_dir, 'events.out.tfevents.*'))
-        if events:
-            return True
+    # Collect all IPCs and methods across all datasets
+    all_ipcs = set()
+    all_methods = set()
+    for dataset in results.values():
+        for ipc in dataset.keys():
+            all_ipcs.add(ipc)
+            for method in dataset[ipc].keys():
+                all_methods.add(method)
 
-    return False
+    print(f"\nSummary:")
+    print(f"  Datasets: {len(datasets)} ({', '.join(datasets)})")
+    print(f"  IPCs: {len(all_ipcs)} ({', '.join(map(str, sorted(all_ipcs)))})")
+    print(f"  Methods: {len(methods_order)} ({', '.join(methods_order)})")
+    print(f"  Total experiments: {total_experiments}")
+
+    # Breakdown by dataset
+    print(f"\nBreakdown by dataset:")
+    for dataset in datasets:
+        ipcs = list(results[dataset].keys())
+        num_ipcs = len(ipcs)
+        methods_in_dataset = set()
+        for ipc in ipcs:
+            methods_in_dataset.update(results[dataset][ipc].keys())
+        num_methods = len(methods_in_dataset)
+        num_exps = sum(len(results[dataset][ipc].keys()) for ipc in ipcs)
+        print(f"  {dataset}: {num_exps} experiments ({num_ipcs} IPCs, {num_methods} methods)")
 
 
-def run_experiment(
-    dataset: str,
-    ipc: int,
-    method: str,
-    seed: int = 0,
-    base_log_dir: str = 'train_log',
-    base_img_dir: str = 'train_img',
-    dry_run: bool = False,
-    enable_xla_fallback: bool = False
-) -> int:
+def filter_results(
+    results: Dict,
+    dataset_filter: Optional[List[str]] = None,
+    method_filter: Optional[List[str]] = None,
+    ipc_filter: Optional[List[int]] = None
+) -> Dict:
     """
-    Run a single experiment.
+    Filter scan results based on user criteria.
 
     Args:
-        dataset: Dataset name
-        ipc: Images per class
-        method: Method name
-        seed: Random seed
-        base_log_dir: Base directory for logs
-        base_img_dir: Base directory for images
-        dry_run: If True, only print command without running
+        results: Full results from scan_experiments()
+        dataset_filter: List of datasets to include (None = all)
+        method_filter: List of methods to include (None = all)
+        ipc_filter: List of IPC values to include (None = all)
 
     Returns:
-        Exit code (0 = success)
+        Filtered results dictionary
     """
-    # Build command
-    cmd = [
-        'python3', '-m', 'script.distill_unified',
-        f'--method={method}',
-        f'--dataset_name={dataset}',
-        f'--num_prototypes_per_class={ipc}',
-        f'--num_distill_steps={QUICK_CONFIG["num_distill_steps"]}',
-        f'--steps_per_eval={QUICK_CONFIG["steps_per_eval"]}',
-        f'--steps_per_log={QUICK_CONFIG["steps_per_log"]}',
-        f'--width={QUICK_CONFIG["width"]}',
-        f'--depth={QUICK_CONFIG["depth"]}',
-        f'--num_eval={QUICK_CONFIG["num_eval"]}',
-        f'--num_online_eval_updates={QUICK_CONFIG["num_online_eval_updates"]}',
-        f'--random_seed={seed}',
-        f'--train_log={base_log_dir}',
-        f'--train_img={base_img_dir}',
-        '--save_image=False',  # Don't save images to save time/space
-    ]
+    from copy import deepcopy
+    filtered = deepcopy(results)
 
-    # Add KIP-specific memory parameters
-    if method.lower() == 'kip':
-        for key, value in KIP_MEMORY_CONFIG.items():
-            cmd.append(f'--{key}={value}')
+    # Filter by dataset
+    if dataset_filter:
+        filtered = {k: v for k, v in filtered.items() if k in dataset_filter}
 
-    print(f"\n{'='*70}")
-    print(f"Running: {dataset.upper()} | IPC={ipc} | Method={method.upper()} | Seed={seed}")
-    print(f"{'='*70}")
-    print(f"Command: {' '.join(cmd)}")
+    # Filter by IPC
+    if ipc_filter:
+        for dataset in list(filtered.keys()):
+            filtered[dataset] = {k: v for k, v in filtered[dataset].items() if k in ipc_filter}
+            # Remove dataset if no IPCs left
+            if not filtered[dataset]:
+                del filtered[dataset]
 
-    if dry_run:
-        print("[DRY RUN - Not executing]")
-        return 0
+    # Filter by method
+    if method_filter:
+        for dataset in list(filtered.keys()):
+            for ipc in list(filtered[dataset].keys()):
+                filtered[dataset][ipc] = {
+                    k: v for k, v in filtered[dataset][ipc].items() if k in method_filter
+                }
+                # Remove IPC if no methods left
+                if not filtered[dataset][ipc]:
+                    del filtered[dataset][ipc]
+            # Remove dataset if no IPCs left
+            if not filtered[dataset]:
+                del filtered[dataset]
 
-    # Prepare environment with XLA flags if needed (for KIP memory optimization)
-    env = os.environ.copy()
-    if enable_xla_fallback:
-        xla_flags = env.get('XLA_FLAGS', '')
-        if xla_flags:
-            xla_flags += ' '
-        xla_flags += '--xla_gpu_strict_conv_algorithm_picker=false'
-        env['XLA_FLAGS'] = xla_flags
-        print(f"  XLA_FLAGS: {xla_flags}")
-
-    # Run experiment
-    start_time = time.time()
-    try:
-        result = subprocess.run(cmd, check=True, env=env)
-        elapsed = time.time() - start_time
-        print(f"\n✓ Completed in {elapsed:.1f}s")
-        return result.returncode
-    except subprocess.CalledProcessError as e:
-        elapsed = time.time() - start_time
-        print(f"\n✗ Failed after {elapsed:.1f}s with exit code {e.returncode}")
-        return e.returncode
-    except KeyboardInterrupt:
-        print("\n\n✗ Interrupted by user")
-        raise
+    return filtered
 
 
 def main(
+    base_dir: str = 'train_log',
+    output_file: str = 'results/tables/comparison_table.md',
     datasets: Optional[str] = None,
     methods: Optional[str] = None,
     ipcs: Optional[str] = None,
-    seeds: str = '0',
-    base_log_dir: str = 'train_log',
-    base_img_dir: str = 'train_img',
-    skip_existing: bool = False,
-    dry_run: bool = False,
-    stop_on_error: bool = False,
-    auto_confirm: bool = False,
-    enable_xla_fallback: bool = True  # Enable by default for KIP
-):
+    also_csv: bool = True,
+    verbose: bool = True
+) -> int:
     """
-    Run quick benchmark experiments for all combinations.
+    Generate comparison tables from all experiments in train_log directory.
+
+    Scans all metrics.json files, computes statistics, and generates:
+    1. Console output (printed table)
+    2. Markdown file (saved to output_file)
+    3. CSV file (optional, if also_csv=True)
 
     Args:
-        datasets: Comma-separated list of datasets (default: all)
-                 Options: mnist, fashion_mnist, cifar10, cifar100
-        methods: Comma-separated list of methods (default: all)
-                Options: frepo, mtt, kip, dc, dm
-        ipcs: Comma-separated list of IPC values (default: 1,10,50)
-        seeds: Comma-separated list of seeds (default: 0)
-        base_log_dir: Base directory for training logs (default: train_log)
-        base_img_dir: Base directory for training images (default: train_img)
-        skip_existing: Skip experiments that already have results (default: False)
-        dry_run: Print commands without executing (default: False)
-        stop_on_error: Stop if any experiment fails (default: False)
-        auto_confirm: Skip confirmation prompt (useful for Colab) (default: False)
-        enable_xla_fallback: Enable XLA fallback algorithm for KIP (default: True)
+        base_dir: Base directory containing training logs (default: 'train_log')
+        output_file: Path to save markdown table (default: 'results/tables/comparison_table.md')
+        datasets: Comma-separated list of datasets to include (default: all found)
+                 Examples: 'mnist,cifar10' or 'mnist'
+        methods: Comma-separated list of methods to include (default: all found)
+                Examples: 'frepo,mtt,dc' or 'frepo'
+        ipcs: Comma-separated list of IPC values (default: all found)
+             Examples: '1,5,10' or '1'
+        also_csv: Also generate CSV file alongside markdown (default: True)
+        verbose: Print detailed progress information (default: True)
+
+    Returns:
+        0 on success, 1 on error
     """
+    # 1. HEADER
     print("="*70)
-    print("QUICK BENCHMARK - Minimal Config for Pipeline Testing")
+    print("QUICK TABLE GENERATION - Scan Experiments & Generate Tables")
     print("="*70)
-    print("\nConfiguration:")
-    for key, value in QUICK_CONFIG.items():
-        print(f"  {key}: {value}")
-    print()
+    print(f"\nScanning directory: {base_dir}")
+    print(f"Output file: {output_file}")
 
-    # Parse filters
-    dataset_filter = None if datasets is None else [d.strip().lower() for d in datasets.split(',')]
-    method_filter = None if methods is None else [m.strip().lower() for m in methods.split(',')]
-    ipc_filter = [1, 10, 50] if ipcs is None else [int(i.strip()) for i in ipcs.split(',')]
-    seed_list = [int(s.strip()) for s in seeds.split(',')]
+    # 2. PARSE FILTERS
+    # Handle both string and tuple inputs (Fire sometimes converts comma-separated values to tuples)
+    if datasets is None:
+        dataset_filter = None
+    elif isinstance(datasets, (list, tuple)):
+        dataset_filter = [d.strip().lower() for d in datasets]
+    else:
+        dataset_filter = [d.strip().lower() for d in datasets.split(',')]
 
-    # Get all experiment configs
-    all_configs = get_experiment_configs()
+    if methods is None:
+        method_filter = None
+    elif isinstance(methods, (list, tuple)):
+        method_filter = [m.strip().lower() for m in methods]
+    else:
+        method_filter = [m.strip().lower() for m in methods.split(',')]
 
-    # Filter configs
-    filtered_configs = []
-    for dataset, ipc, method in all_configs:
-        if dataset_filter and dataset not in dataset_filter:
-            continue
-        if method_filter and method not in method_filter:
-            continue
-        if ipc not in ipc_filter:
-            continue
-        filtered_configs.append((dataset, ipc, method))
+    if ipcs is None:
+        ipc_filter = None
+    elif isinstance(ipcs, int):
+        # Single integer value
+        ipc_filter = [ipcs]
+    elif isinstance(ipcs, (list, tuple)):
+        ipc_filter = [int(i) if isinstance(i, int) else int(str(i).strip()) for i in ipcs]
+    else:
+        # String value
+        ipc_filter = [int(i.strip()) for i in str(ipcs).split(',')]
 
-    # Expand with seeds
-    experiments = []
-    for dataset, ipc, method in filtered_configs:
-        for seed in seed_list:
-            # Check if already exists
-            if skip_existing and experiment_exists(
-                base_log_dir,
-                dataset,
-                ipc,
-                method,
-                seed,
-                arch='conv',
-                normalization='identity',
-                learn_label=True,
-                width=QUICK_CONFIG["width"],
-                depth=QUICK_CONFIG["depth"],
-                num_distill_steps=QUICK_CONFIG["num_distill_steps"]
-            ):
-                print(f"Skipping existing: {dataset} | IPC={ipc} | {method} | seed={seed}")
-                continue
-            experiments.append((dataset, ipc, method, seed))
+    if verbose:
+        print("\nFilters:")
+        print(f"  Datasets: {dataset_filter if dataset_filter else 'ALL'}")
+        print(f"  Methods: {method_filter if method_filter else 'ALL'}")
+        print(f"  IPCs: {ipc_filter if ipc_filter else 'ALL'}")
 
-    print(f"\nTotal experiments to run: {len(experiments)}")
-
-    if not experiments:
-        print("No experiments to run!")
-        return 0
-
-    # Confirm before starting (unless auto_confirm is True)
-    if not dry_run and not auto_confirm:
-        print("\nPress Enter to start, or Ctrl+C to cancel...")
-        try:
-            input()
-        except KeyboardInterrupt:
-            print("\nCancelled by user")
-            return 1
-    elif auto_confirm:
-        print("\nAuto-confirm enabled, starting immediately...")
-
-    # Run all experiments
-    failed = []
-    completed = 0
+    # 3. SCAN EXPERIMENTS
+    print(f"\nScanning experiments...")
     start_time = time.time()
 
-    for idx, (dataset, ipc, method, seed) in enumerate(experiments, 1):
-        print(f"\n\n[{idx}/{len(experiments)}] Starting experiment...")
+    # Check if directory exists
+    if not os.path.exists(base_dir):
+        print(f"Error: Directory '{base_dir}' does not exist!")
+        print("Make sure you have run experiments first.")
+        return 1
 
-        try:
-            exit_code = run_experiment(
-                dataset=dataset,
-                ipc=ipc,
-                method=method,
-                seed=seed,
-                base_log_dir=base_log_dir,
-                base_img_dir=base_img_dir,
-                dry_run=dry_run,
-                enable_xla_fallback=enable_xla_fallback and (method.lower() == 'kip')  # Only for KIP
-            )
+    results = scan_experiments_with_std(base_dir, dataset_filter)
+    scan_time = time.time() - start_time
 
-            if exit_code == 0:
-                completed += 1
-            else:
-                failed.append((dataset, ipc, method, seed, exit_code))
-                if stop_on_error:
-                    print("\nStopping due to error (--stop_on_error=True)")
-                    break
+    if not results:
+        print(f"Error: No experiments found in {base_dir}")
+        print("Make sure you have run experiments first.")
+        print(f"Expected directory structure: {base_dir}/<dataset>/step*_num*/<method>_*/seed*/")
+        return 1
 
-        except KeyboardInterrupt:
-            print("\n\nInterrupted by user!")
-            break
+    # 4. FILTER RESULTS
+    if method_filter or ipc_filter:
+        results = filter_results(results, None, method_filter, ipc_filter)
 
-    # Summary
-    elapsed = time.time() - start_time
-    print("\n\n" + "="*70)
-    print("BENCHMARK SUMMARY")
+        if not results:
+            print("Error: No experiments match your filters!")
+            print(f"  Datasets: {dataset_filter}")
+            print(f"  Methods: {method_filter}")
+            print(f"  IPCs: {ipc_filter}")
+            return 1
+
+    # 5. DETERMINE METHOD ORDER
+    all_methods = set()
+    for dataset in results.values():
+        for ipc in dataset.values():
+            all_methods.update(ipc.keys())
+
+    if methods:
+        methods_order = method_filter
+    else:
+        # Preferred order matching generate_paper_table.py
+        preferred_order = ['dm', 'kip', 'mtt', 'dc', 'frepo']
+        methods_order = [m for m in preferred_order if m in all_methods]
+        methods_order.extend(sorted(all_methods - set(methods_order)))
+
+    # 6. PRINT SUMMARY
+    print(f"\nScan completed in {scan_time:.2f}s")
+    print_scan_summary(results, methods_order)
+
+    # 7. GENERATE MARKDOWN TABLE
+    print("\nGenerating markdown table...")
+    markdown_content = generate_markdown_table(results, methods_order)
+
+    # 8. PRINT TO CONSOLE
+    print("\n" + "="*70)
+    print("RESULTS TABLE")
     print("="*70)
-    print(f"Total time: {elapsed:.1f}s ({elapsed/60:.1f} minutes)")
-    print(f"Completed: {completed}/{len(experiments)}")
-    print(f"Failed: {len(failed)}")
+    print(markdown_content)
+    print("="*70)
 
-    if failed:
-        print("\nFailed experiments:")
-        for dataset, ipc, method, seed, code in failed:
-            print(f"  - {dataset} | IPC={ipc} | {method} | seed={seed} (exit code: {code})")
+    # 9. SAVE MARKDOWN FILE
+    try:
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        with open(output_file, 'w') as f:
+            f.write(markdown_content)
+        print(f"\nMarkdown table saved to: {output_file}")
+    except Exception as e:
+        print(f"Error saving markdown file: {e}")
+        return 1
 
-    if not dry_run and completed > 0:
-        print("\n" + "="*70)
-        print("NEXT STEPS")
-        print("="*70)
-        print("\n1. Generate comparison table:")
-        print(f"   python3 -m script.generate_paper_table --base_dir={base_log_dir}")
-        print("\n2. View in TensorBoard:")
-        print(f"   tensorboard --logdir={base_log_dir}")
+    # 10. GENERATE CSV (OPTIONAL)
+    if also_csv:
+        try:
+            csv_file = output_file.replace('.md', '.csv')
+            csv_content = generate_csv(results, methods_order)
+            with open(csv_file, 'w') as f:
+                f.write(csv_content)
+            print(f"CSV file saved to: {csv_file}")
+        except Exception as e:
+            print(f"Warning: Failed to save CSV file: {e}")
 
-    return 0 if len(failed) == 0 else 1
+    # 11. FINAL SUMMARY
+    total_experiments = sum(
+        sum(len(methods.keys()) for methods in ipcs.values())
+        for ipcs in results.values()
+    )
+    print("\n" + "="*70)
+    print("SUMMARY")
+    print("="*70)
+    print(f"Total experiments processed: {total_experiments}")
+    print(f"Datasets: {list(results.keys())}")
+    print(f"Methods: {methods_order}")
+    print("="*70)
+
+    return 0
 
 
 if __name__ == '__main__':
