@@ -75,7 +75,8 @@ def save_original_images(dataset, num_classes=10, class_names=None, rev_preproce
 
     # Iterate through dataset to collect samples
     for batch in dataset:
-        images, labels = batch['image'], batch['label']
+        # Dataset batches are tuples (images, labels) from configure_dataloader
+        images, labels = batch
 
         # Convert to numpy if needed
         images = np.array(images)
