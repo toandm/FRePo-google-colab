@@ -71,9 +71,13 @@ def save_original_images(dataset, num_classes=10, class_names=None, rev_preproce
         logging.warning("No save_dir provided, skipping original image save")
         return
 
-    # Collect samples from dataset
-    collected_images = {i: [] for i in range(num_classes)}
-    collected_labels = {i: [] for i in range(num_classes)}
+    # Collect samples from dataset - use dict with dynamic keys to handle
+    # datasets where class indices may not be [0, num_classes-1]
+    # (e.g., Caltech101 which may have indices 0-101 for 102 classes)
+    from collections import defaultdict
+    collected_images = defaultdict(list)
+    collected_labels = defaultdict(list)
+    seen_classes = set()
 
     logging.info(f"Collecting original images ({samples_per_class} per class)...")
 
@@ -91,24 +95,33 @@ def save_original_images(dataset, num_classes=10, class_names=None, rev_preproce
             # Get class index
             if len(label.shape) > 0 and label.shape[0] > 1:
                 # One-hot encoded
-                class_idx = label.argmax()
+                class_idx = int(label.argmax())
             else:
                 # Integer label
                 class_idx = int(label)
+
+            seen_classes.add(class_idx)
 
             # Collect if we need more samples for this class
             if len(collected_images[class_idx]) < samples_per_class:
                 collected_images[class_idx].append(img)
                 collected_labels[class_idx].append(label)
 
-        # Check if we have enough samples
-        if all(len(collected_images[i]) >= samples_per_class for i in range(num_classes)):
+        # Check if we have enough samples for all seen classes
+        # Stop when we've seen num_classes classes and all have enough samples
+        if (len(seen_classes) >= num_classes and 
+            all(len(collected_images[c]) >= samples_per_class for c in seen_classes)):
             break
 
-    # Organize images into arrays
+    # Get sorted list of class indices that were found
+    found_classes = sorted(seen_classes)
+    logging.info(f"Found {len(found_classes)} classes with indices: {found_classes[:10]}..." 
+                 if len(found_classes) > 10 else f"Found {len(found_classes)} classes: {found_classes}")
+
+    # Organize images into arrays (using found classes, not assumed range)
     all_images = []
     all_labels = []
-    for class_idx in range(num_classes):
+    for class_idx in found_classes[:num_classes]:  # Limit to num_classes
         all_images.extend(collected_images[class_idx][:samples_per_class])
         all_labels.extend(collected_labels[class_idx][:samples_per_class])
 
