@@ -107,7 +107,10 @@ def main(dataset_name, data_path=None, zca_path=None, train_log=None, train_img=
     if not os.path.exists(train_img):
         os.makedirs(train_img)
 
-    use_pmap = jax.device_count('gpu') > 1
+    try:
+        use_pmap = jax.device_count('gpu') > 1
+    except RuntimeError:
+        use_pmap = False
     if use_pmap:
         logging.info('Use Multi GPU Training. \n Number of GPUs: {}'.format(jax.device_count()))
 

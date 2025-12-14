@@ -87,7 +87,7 @@ def main(dataset_name, data_path=None, zca_path=None, train_log=None, train_img=
         num_gpus = jax.device_count('gpu')
     except RuntimeError:
         num_gpus = 0
-    
+
     use_pmap = num_gpus > 1
     if use_pmap:
         logging.info('Use Multi GPU Training. \n Number of GPUs: {}'.format(num_gpus))

@@ -22,7 +22,9 @@ data_stats = {
     'imagewoof': ([0.4917, 0.4613, 0.3931], [0.2513, 0.2442, 0.2530]),
     'imagenet_resized/32x32': ([0.4811, 0.4575, 0.4079], [0.2604, 0.2532, 0.2682]),
     'imagenet_resized/64x64': ([0.4815, 0.4578, 0.4082], [0.2686, 0.2613, 0.2758]),
-    'caltech_birds2011': ([0.4810, 0.4964, 0.4245], [0.2129, 0.2084, 0.2468])
+    'caltech_birds2011': ([0.4810, 0.4964, 0.4245], [0.2129, 0.2084, 0.2468]),
+    'caltech101': ([0.5451, 0.5280, 0.5017], [0.3101, 0.3054, 0.3206]),
+    'deep_weeds': ([0.3891, 0.4001, 0.3196], [0.1851, 0.1897, 0.1734])
 }
 
 
@@ -69,6 +71,9 @@ def get_dataset(config, return_raw=False):
 
     if dataset_name in ['imagenet_resized/64x64', 'imagenette', 'imagewoof']:
         split = ['train', 'validation']
+    elif dataset_name in ['deep_weeds']:
+        # Datasets with only 'train' split - use 80/20 split
+        split = ['train[:80%]', 'train[80%:]']
     else:
         split = ['train', 'test']
 

@@ -189,6 +189,9 @@ def save_checkpoint(state, path, step_or_metric=None, keep=1):
         step_or_metric (int of float): Current training step or metric to identify the checkpoint.
         path (str): Path to the checkpoint directory.
     """
+    # Convert to absolute path for Orbax compatibility
+    path = os.path.abspath(path)
+
     if jax.device_count() > 1:
         if jax.process_index() == 0:
             state = jax.device_get(jax.tree_util.tree_map(lambda x: x[0], state))
@@ -340,12 +343,25 @@ def train_step(state, batch, rng, loss_type, l2_reg=0.0, has_feat=False, has_bn=
         else:
             variables = {'params': params}
 
+        # Choose mutable collections based on has_bn
+        mutable = ['batch_stats'] if has_bn else False
+
         if has_feat:
-            (logits, feat), new_model_state = state.apply_fn(variables, batch['image'], rngs={'dropout': rng},
-                                                             train=True, mutable=['batch_stats'])
+            out = state.apply_fn(variables, batch['image'], rngs={'dropout': rng},
+                                train=True, mutable=mutable)
+            if has_bn:
+                (logits, feat), new_model_state = out
+            else:
+                logits, feat = out
+                new_model_state = {}
         else:
-            logits, new_model_state = state.apply_fn(variables, batch['image'], rngs={'dropout': rng}, train=True,
-                                                     mutable=['batch_stats'])
+            out = state.apply_fn(variables, batch['image'], rngs={'dropout': rng}, train=True,
+                                mutable=mutable)
+            if has_bn:
+                logits, new_model_state = out
+            else:
+                logits = out
+                new_model_state = {}
 
         loss = loss_type(logits, batch['label']).mean()
         if l2_reg > 0.0:
