@@ -141,3 +141,9 @@ __azurite_db*__.json
 toan_test*
 data
 ~
+
+# Training artifacts (large binaries — keep on disk, never commit)
+train_log/
+train_img/
+*.npz
+.DS_Store
