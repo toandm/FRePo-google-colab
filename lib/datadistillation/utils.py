@@ -8,8 +8,31 @@ import flax
 import matplotlib.pyplot as plt
 
 from typing import (Any, Tuple, Iterable, Union)
+from PIL import Image
 
 PRNGKey = Any
+
+
+def convert_to_grayscale(input_path, output_path=None):
+    """
+    Convert a color image to grayscale.
+    
+    Args:
+        input_path: Path to input image
+        output_path: Path to save output (if None, overwrites input)
+    
+    Usage:
+        from lib.datadistillation.utils import convert_to_grayscale
+        convert_to_grayscale('train_img/mnist/step001000.png')
+    """
+    if output_path is None:
+        output_path = input_path
+    
+    img = Image.open(input_path)
+    gray_img = img.convert('L')  # 'L' = grayscale
+    gray_img.save(output_path)
+    logging.info(f'Converted to grayscale: {output_path}')
+    return output_path
 Array = Any
 Shape = Tuple[int]
 Dtype = Any
@@ -235,7 +258,6 @@ def save_frepo_image(proto_state, step, num_classes=10, class_names=None, rev_pr
 
         ax.xaxis.set_ticklabels([])
         ax.yaxis.set_ticklabels([])
-        plt.imshow(np.squeeze(img))
         plt.xticks([])
         plt.yticks([])
 
